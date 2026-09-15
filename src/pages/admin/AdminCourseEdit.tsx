@@ -72,7 +72,7 @@ export function AdminCourseEdit() {
     const path = `${course.id}/${lessonId}/${file.name}`;
     const { error } = await supabase.storage.from("course-files").upload(path, file, {
   upsert: true,
-  contentType: file.type || "text/html",
+  contentType: "text/html",
 });
     if (!error) {
       await supabase.from("lessons").update({ content_reference: path }).eq("id", lessonId);
