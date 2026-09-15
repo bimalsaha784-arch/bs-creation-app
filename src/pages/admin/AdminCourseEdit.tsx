@@ -70,7 +70,10 @@ export function AdminCourseEdit() {
     // The admin's own session can write here because of the course_files_admin_all
     // storage policy, which checks is_admin() server-side.
     const path = `${course.id}/${lessonId}/${file.name}`;
-    const { error } = await supabase.storage.from("course-files").upload(path, file, { upsert: true });
+    const { error } = await supabase.storage.from("course-files").upload(path, file, {
+  upsert: true,
+  contentType: file.type || "text/html",
+});
     if (!error) {
       await supabase.from("lessons").update({ content_reference: path }).eq("id", lessonId);
       refresh();
