@@ -41,6 +41,7 @@ export interface Lesson {
   content_type: "pdf" | "html_app" | "video" | "text" | "quiz";
   position: number;
   duration: string | null;
+  content_reference: string | null;
 }
 
 export interface Enrollment {
