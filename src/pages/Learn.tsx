@@ -59,8 +59,8 @@ export function Learn() {
     } finally {
       setLoadingContent(false);
     }
-  }
-
+ }
+  
   async function markComplete() {
     if (!user || !activeLesson || !courseId) return;
     await supabase.from("progress").upsert(
