@@ -1,189 +1,266 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { supabase } from "../lib/supabaseClient";
-import { useAuth } from "../hooks/useAuth";
-import type { Module, Lesson } from "../types";
+import { supabase } from "../../lib/supabaseClient";
+import type { Course, Module, Lesson } from "../../types";
 
-export function Learn() {
-  const { courseId } = useParams();
-  const { session, user } = useAuth();
-
+export function AdminCourseEdit() {
+  const { id } = useParams();
+  const [course, setCourse] = useState<Course | null>(null);
   const [modules, setModules] = useState<(Module & { lessons: Lesson[] })[]>([]);
-  const [activeLesson, setActiveLesson] = useState<Lesson | null>(null);
-  const [signedUrl, setSignedUrl] = useState<string | null>(null);
-  const [htmlContent, setHtmlContent] = useState<string | null>(null);
-  const [contentError, setContentError] = useState<string | null>(null);
-  const [loadingContent, setLoadingContent] = useState(false);
-  const [courseTitle, setCourseTitle] = useState("");
-  const [navOpen, setNavOpen] = useState(false);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [newModuleTitle, setNewModuleTitle] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  const [priceInput, setPriceInput] = useState("");
+  const [discountInput, setDiscountInput] = useState("");
+  const [savingPrice, setSavingPrice] = useState(false);
+  const [priceSaved, setPriceSaved] = useState(false);
+
+  async function refresh() {
+    const { data: courseData } = await supabase.from("courses").select("*").eq("id", id).single();
+    setCourse(courseData as Course);
+    if (courseData) {
+      setPriceInput(String(courseData.price ?? ""));
+      setDiscountInput(courseData.discount_price != null ? String(courseData.discount_price) : "");
+    }
+
+    const { data: moduleData } = await supabase
+      .from("modules")
+      .select("*, lessons(*)")
+      .eq("course_id", id)
+      .order("position");
+    setModules((moduleData as any) ?? []);
+  }
 
   useEffect(() => {
-    if (!courseId) return;
-    (async () => {
-      const { data: course } = await supabase.from("courses").select("title").eq("id", courseId).single();
-      setCourseTitle(course?.title ?? "");
+    refresh();
+  }, [id]);
 
-      const { data: moduleData } = await supabase
-        .from("modules")
-        .select("*, lessons(*)")
-        .eq("course_id", courseId)
-        .order("position");
-      const withSortedLessons = (moduleData ?? []).map((m: any) => ({
-        ...m,
-        lessons: (m.lessons ?? []).sort((a: Lesson, b: Lesson) => a.position - b.position),
-      }));
-      setModules(withSortedLessons);
-      if (withSortedLessons[0]?.lessons?.[0]) {
-        selectLesson(withSortedLessons[0].lessons[0]);
-      }
-    })();
-  }, [courseId]);
+  async function savePrice() {
+    if (!course) return;
+    setSavingPrice(true);
+    setPriceSaved(false);
 
-  async function selectLesson(lesson: Lesson) {
-    setActiveLesson(lesson);
-    setSignedUrl(null);
-    setHtmlContent(null);
-    setContentError(null);
-    setNavOpen(false);
+    const newPrice = Number(priceInput);
+    const newDiscount = discountInput.trim() === "" ? null : Number(discountInput);
 
-    if (lesson.content_type === "text") return;
+    const { error } = await supabase
+      .from("courses")
+      .update({ price: newPrice, discount_price: newDiscount })
+      .eq("id", course.id);
 
-    setLoadingContent(true);
-    try {
-      const res = await fetch(`/api/get-signed-url?lessonId=${lesson.id}`, {
-        headers: { Authorization: `Bearer ${session?.access_token}` },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Access denied");
-      setSignedUrl(data.url);
-
-      if (lesson.content_type === "html_app") {
-        const htmlRes = await fetch(data.url);
-        const htmlText = await htmlRes.text();
-        setHtmlContent(htmlText);
-      }
-    } catch (e: any) {
-      setContentError(e.message);
-    } finally {
-      setLoadingContent(false);
+    setSavingPrice(false);
+    if (error) {
+      alert(error.message);
+    } else {
+      setPriceSaved(true);
+      refresh();
+      setTimeout(() => setPriceSaved(false), 2000);
     }
   }
 
-  async function markComplete() {
-    if (!user || !activeLesson || !courseId) return;
-    await supabase.from("progress").upsert(
-      {
-        user_id: user.id,
-        course_id: courseId,
-        lesson_id: activeLesson.id,
-        completed: true,
-        last_accessed_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id,lesson_id" }
+  async function addModule() {
+    if (!newModuleTitle.trim() || !course) return;
+    await supabase.from("modules").insert({
+      course_id: course.id,
+      title: newModuleTitle,
+      position: modules.length,
+    });
+    setNewModuleTitle("");
+    refresh();
+  }
+
+  async function deleteModule(moduleId: string, moduleTitle: string) {
+    const confirmed = window.confirm(
+      `Delete module "${moduleTitle}" and all its lessons? This cannot be undone.`
     );
+    if (!confirmed) return;
+    await supabase.from("modules").delete().eq("id", moduleId);
+    refresh();
   }
 
-  function goFullscreen() {
-    const el = iframeRef.current;
-    if (!el) return;
-    if (el.requestFullscreen) {
-      el.requestFullscreen();
-    } else if ((el as any).webkitRequestFullscreen) {
-      (el as any).webkitRequestFullscreen();
+  async function addLesson(moduleId: string) {
+    const title = window.prompt("Lesson title?");
+    if (!title) return;
+    const contentType = window.prompt("Content type: pdf, html_app, video, or text?", "pdf") as any;
+    await supabase.from("lessons").insert({
+      module_id: moduleId,
+      title,
+      content_type: contentType || "text",
+      position: modules.find((m) => m.id === moduleId)?.lessons.length ?? 0,
+      status: "published",
+    });
+    refresh();
+  }
+
+  async function deleteLesson(lessonId: string, lessonTitle: string) {
+    const confirmed = window.confirm(`Delete lesson "${lessonTitle}"? This cannot be undone.`);
+    if (!confirmed) return;
+    await supabase.from("lessons").delete().eq("id", lessonId);
+    refresh();
+  }
+
+  async function uploadThumbnail(file: File) {
+    if (!course) return;
+    setUploading(true);
+    const path = `${course.id}/thumbnail-${Date.now()}.${file.name.split(".").pop()}`;
+    const { error } = await supabase.storage.from("course-thumbnails").upload(path, file, { upsert: true });
+    if (!error) {
+      const { data } = supabase.storage.from("course-thumbnails").getPublicUrl(path);
+      await supabase.from("courses").update({ thumbnail_url: data.publicUrl }).eq("id", course.id);
+      refresh();
+    }
+    setUploading(false);
+  }
+
+  async function uploadLessonFile(lessonId: string, file: File) {
+    if (!course) return;
+    const path = `${course.id}/${lessonId}/${file.name}`;
+    const { error } = await supabase.storage.from("course-files").upload(path, file, {
+      upsert: true,
+      contentType: "text/html",
+    });
+    if (!error) {
+      await supabase.from("lessons").update({ content_reference: path }).eq("id", lessonId);
+      refresh();
+    } else {
+      alert(error.message);
     }
   }
+
+  async function togglePublish() {
+    if (!course) return;
+    const next = course.status === "published" ? "draft" : "published";
+    await supabase.from("courses").update({ status: next }).eq("id", course.id);
+    refresh();
+  }
+
+  if (!course) return <div className="px-4 py-12 text-slate-500">Loading…</div>;
 
   return (
-    <div className="flex min-h-[calc(100vh-64px)] flex-col md:flex-row">
-      <button
-        onClick={() => setNavOpen((v) => !v)}
-        className="border-b border-slate-100 px-4 py-3 text-left text-sm font-medium text-slate-700 md:hidden"
-      >
-        ☰ Course Content
-      </button>
+    <div className="mx-auto max-w-3xl px-4 py-12">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-slate-900">{course.title}</h1>
+        <button
+          onClick={togglePublish}
+          className={`rounded-full px-4 py-2 text-sm font-semibold text-white ${
+            course.status === "published" ? "bg-slate-700" : "bg-emerald-600"
+          }`}
+        >
+          {course.status === "published" ? "Unpublish" : "Publish"}
+        </button>
+      </div>
 
-      <aside
-        className={`${navOpen ? "block" : "hidden"} w-full border-r border-slate-100 bg-slate-50 p-4 md:block md:w-72`}
-      >
-        <div className="mb-4 font-semibold text-slate-900">{courseTitle}</div>
+      <div className="mt-6">
+        <label className="text-sm font-medium text-slate-700">Thumbnail</label>
+        <div className="mt-2 flex items-center gap-4">
+          {course.thumbnail_url && <img src={course.thumbnail_url} className="h-16 w-28 rounded-lg object-cover" />}
+          <input
+            type="file"
+            accept="image/*"
+            disabled={uploading}
+            onChange={(e) => e.target.files?.[0] && uploadThumbnail(e.target.files[0])}
+          />
+        </div>
+      </div>
+
+      <div className="mt-8 rounded-xl border border-slate-200 p-4">
+        <label className="text-sm font-medium text-slate-700">Price</label>
+        <div className="mt-2 flex flex-wrap items-end gap-3">
+          <div>
+            <div className="text-xs text-slate-500">Price (₹)</div>
+            <input
+              type="number"
+              min="0"
+              value={priceInput}
+              onChange={(e) => setPriceInput(e.target.value)}
+              className="mt-1 w-32 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <div className="text-xs text-slate-500">Discount price (optional)</div>
+            <input
+              type="number"
+              min="0"
+              value={discountInput}
+              onChange={(e) => setDiscountInput(e.target.value)}
+              placeholder="none"
+              className="mt-1 w-32 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+          <button
+            onClick={savePrice}
+            disabled={savingPrice}
+            className="rounded-full bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+          >
+            {savingPrice ? "Saving…" : "Save Price"}
+          </button>
+          {priceSaved && <span className="text-sm text-emerald-600">Saved ✓</span>}
+        </div>
+        <p className="mt-2 text-xs text-slate-400">Leave discount price empty to charge full price.</p>
+      </div>
+
+      <h2 className="mt-10 text-lg font-semibold text-slate-900">Modules & Lessons</h2>
+      <div className="mt-4 space-y-4">
         {modules.map((m) => (
-          <div key={m.id} className="mb-4">
-            <div className="mb-1 text-sm font-medium text-slate-700">{m.title}</div>
-            <ul>
-              {m.lessons.map((l) => (
-                <li key={l.id}>
-                  <button
-                    onClick={() => selectLesson(l)}
-                    className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
-                      activeLesson?.id === l.id ? "bg-brand-100 text-brand-700" : "text-slate-600 hover:bg-slate-100"
-                    }`}
-                  >
-                    {l.title}
-                  </button>
+          <div key={m.id} className="rounded-xl border border-slate-200 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-medium text-slate-900">{m.title}</div>
+              <div className="flex items-center gap-3">
+                <button onClick={() => addLesson(m.id)} className="text-sm text-brand-600 hover:underline">
+                  + Add lesson
+                </button>
+                <button
+                  onClick={() => deleteModule(m.id, m.title)}
+                  className="text-sm text-red-600 hover:underline"
+                >
+                  Delete module
+                </button>
+              </div>
+            </div>
+            <ul className="mt-2 space-y-2">
+              {(m.lessons ?? []).map((l: Lesson) => (
+                <li key={l.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                  <span>
+                    {l.title} <span className="text-slate-400">({l.content_type})</span>
+                    {l.content_reference ? (
+                      <span className="ml-2 text-emerald-600">file attached</span>
+                    ) : (
+                      <span className="ml-2 text-amber-600">no file yet</span>
+                    )}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {l.content_type !== "text" && (
+                      <input
+                        type="file"
+                        className="text-xs"
+                        onChange={(e) => e.target.files?.[0] && uploadLessonFile(l.id, e.target.files[0])}
+                      />
+                    )}
+                    <button
+                      onClick={() => deleteLesson(l.id, l.title)}
+                      className="text-xs text-red-600 hover:underline"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
           </div>
         ))}
-      </aside>
 
-      <section className="flex-1 p-6">
-        {!activeLesson ? (
-          <p className="text-slate-500">Select a lesson to begin.</p>
-        ) : (
-          <div>
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-slate-900">{activeLesson.title}</h2>
-              {activeLesson.content_type === "html_app" && htmlContent && (
-                <button
-                  onClick={goFullscreen}
-                  className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
-                >
-                  ⛶ Fullscreen
-                </button>
-              )}
-            </div>
-
-            <div className="mt-4 min-h-[400px] rounded-xl border border-slate-200 bg-white">
-              {loadingContent && <div className="p-8 text-slate-400">Loading content…</div>}
-              {contentError && (
-                <div className="p-8 text-red-600">
-                  {contentError === "You do not have access to this lesson"
-                    ? "You don't have access to this lesson. Please purchase the course to unlock it."
-                    : contentError}
-                </div>
-              )}
-
-              {!loadingContent && !contentError && activeLesson.content_type === "pdf" && signedUrl && (
-                <iframe src={signedUrl} className="h-[600px] w-full rounded-xl" title={activeLesson.title} />
-              )}
-
-              {!loadingContent && !contentError && activeLesson.content_type === "html_app" && htmlContent && (
-                <iframe
-                  ref={iframeRef}
-                  srcDoc={htmlContent}
-                  className="h-[80vh] w-full rounded-xl"
-                  title={activeLesson.title}
-                  sandbox="allow-scripts allow-same-origin"
-                  allowFullScreen
-                />
-              )}
-
-              {!loadingContent && !contentError && activeLesson.content_type === "video" && signedUrl && (
-                <video src={signedUrl} controls className="w-full rounded-xl" />
-              )}
-            </div>
-
-            <button
-              onClick={markComplete}
-              className="mt-4 rounded-full bg-brand-600 px-5 py-2 text-sm font-medium text-white hover:bg-brand-700"
-            >
-              Mark Complete
-            </button>
-          </div>
-        )}
-      </section>
+        <div className="flex gap-2">
+          <input
+            value={newModuleTitle}
+            onChange={(e) => setNewModuleTitle(e.target.value)}
+            placeholder="New module title"
+            className="flex-1 rounded-lg border border-slate-200 px-4 py-2 text-sm"
+          />
+          <button onClick={addModule} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white">
+            Add Module
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
