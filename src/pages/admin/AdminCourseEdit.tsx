@@ -1,265 +1,138 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import { supabase } from "../../lib/supabaseClient";
-import type { Course, Module, Lesson } from "../../types";
+import { Link } from "react-router-dom";
+import { supabase } from "../lib/supabaseClient";
+import { useAuth } from "../hooks/useAuth";
+import type { Course } from "../types";
 
-export function AdminCourseEdit() {
-  const { id } = useParams();
-  const [course, setCourse] = useState<Course | null>(null);
-  const [modules, setModules] = useState<(Module & { lessons: Lesson[] })[]>([]);
-  const [newModuleTitle, setNewModuleTitle] = useState("");
-  const [uploading, setUploading] = useState(false);
+interface OwnedCourse extends Course {
+  progressPct: number;
+  lastLessonId: string | null;
+}
 
-  const [priceInput, setPriceInput] = useState("");
-  const [discountInput, setDiscountInput] = useState("");
-  const [savingPrice, setSavingPrice] = useState(false);
-  const [priceSaved, setPriceSaved] = useState(false);
-
-  async function refresh() {
-    const { data: courseData } = await supabase.from("courses").select("*").eq("id", id).single();
-    setCourse(courseData as Course);
-    if (courseData) {
-      setPriceInput(String(courseData.price ?? ""));
-      setDiscountInput(courseData.discount_price != null ? String(courseData.discount_price) : "");
-    }
-
-    const { data: moduleData } = await supabase
-      .from("modules")
-      .select("*, lessons(*)")
-      .eq("course_id", id)
-      .order("position");
-    setModules((moduleData as any) ?? []);
-  }
+export function Dashboard() {
+  const { user, profile } = useAuth();
+  const [courses, setCourses] = useState<OwnedCourse[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    refresh();
-  }, [id]);
+    if (!user) return;
+    (async () => {
+      const { data: enrollments } = await supabase
+        .from("enrollments")
+        .select("course_id, courses(*)")
+        .eq("user_id", user.id)
+        .eq("status", "active");
 
-  async function savePrice() {
-    if (!course) return;
-    setSavingPrice(true);
-    setPriceSaved(false);
+      const owned: OwnedCourse[] = [];
+      for (const e of enrollments ?? []) {
+        const course = (e as any).courses as Course;
+        if (!course) continue;
 
-    const newPrice = Number(priceInput);
-    const newDiscount = discountInput.trim() === "" ? null : Number(discountInput);
+        const { count: totalLessons } = await supabase
+          .from("lessons")
+          .select("id, modules!inner(course_id)", { count: "exact", head: true })
+          .eq("modules.course_id", course.id);
 
-    const { error } = await supabase
-      .from("courses")
-      .update({ price: newPrice, discount_price: newDiscount })
-      .eq("id", course.id);
+        const { count: completedLessons } = await supabase
+          .from("progress")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .eq("course_id", course.id)
+          .eq("completed", true);
 
-    setSavingPrice(false);
-    if (error) {
-      alert(error.message);
-    } else {
-      setPriceSaved(true);
-      refresh();
-      setTimeout(() => setPriceSaved(false), 2000);
-    }
-  }
+        // Find the most recently accessed lesson for this course, so
+        // "Continue Learning" can jump straight back into it.
+        const { data: lastProgress } = await supabase
+          .from("progress")
+          .select("lesson_id, last_accessed_at")
+          .eq("user_id", user.id)
+          .eq("course_id", course.id)
+          .order("last_accessed_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-  async function addModule() {
-    if (!newModuleTitle.trim() || !course) return;
-    await supabase.from("modules").insert({
-      course_id: course.id,
-      title: newModuleTitle,
-      position: modules.length,
-    });
-    setNewModuleTitle("");
-    refresh();
-  }
+        const pct = totalLessons ? Math.round(((completedLessons ?? 0) / totalLessons) * 100) : 0;
+        owned.push({ ...course, progressPct: pct, lastLessonId: lastProgress?.lesson_id ?? null });
+      }
+      setCourses(owned);
 
-  async function deleteModule(moduleId: string, moduleTitle: string) {
-    const confirmed = window.confirm(
-      `Delete module "${moduleTitle}" and all its lessons? This cannot be undone.`
-    );
-    if (!confirmed) return;
-    await supabase.from("modules").delete().eq("id", moduleId);
-    refresh();
-  }
+      const { data: paymentRows } = await supabase
+        .from("payments")
+        .select("id, amount, currency, status, created_at, courses(title)")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+      setPayments(paymentRows ?? []);
 
-  async function addLesson(moduleId: string) {
-    const title = window.prompt("Lesson title?");
-    if (!title) return;
-    const contentType = window.prompt("Content type: pdf, html_app, video, or text?", "pdf") as any;
-    await supabase.from("lessons").insert({
-      module_id: moduleId,
-      title,
-      content_type: contentType || "text",
-      position: modules.find((m) => m.id === moduleId)?.lessons.length ?? 0,
-      status: "published",
-    });
-    refresh();
-  }
-
-  async function deleteLesson(lessonId: string, lessonTitle: string) {
-    const confirmed = window.confirm(`Delete lesson "${lessonTitle}"? This cannot be undone.`);
-    if (!confirmed) return;
-    await supabase.from("lessons").delete().eq("id", lessonId);
-    refresh();
-  }
-
-  async function uploadThumbnail(file: File) {
-    if (!course) return;
-    setUploading(true);
-    const path = `${course.id}/thumbnail-${Date.now()}.${file.name.split(".").pop()}`;
-    const { error } = await supabase.storage.from("course-thumbnails").upload(path, file, { upsert: true });
-    if (!error) {
-      const { data } = supabase.storage.from("course-thumbnails").getPublicUrl(path);
-      await supabase.from("courses").update({ thumbnail_url: data.publicUrl }).eq("id", course.id);
-      refresh();
-    }
-    setUploading(false);
-  }
-
-  async function uploadLessonFile(lessonId: string, file: File) {
-    if (!course) return;
-    const path = `${course.id}/${lessonId}/${file.name}`;
-    const { error } = await supabase.storage.from("course-files").upload(path, file, {
-      upsert: true,
-      contentType: "text/html",
-    });
-    if (!error) {
-      await supabase.from("lessons").update({ content_reference: path }).eq("id", lessonId);
-      refresh();
-    } else {
-      alert(error.message);
-    }
-  }
-
-  async function togglePublish() {
-    if (!course) return;
-    const next = course.status === "published" ? "draft" : "published";
-    await supabase.from("courses").update({ status: next }).eq("id", course.id);
-    refresh();
-  }
-
-  if (!course) return <div className="px-4 py-12 text-slate-500">Loading…</div>;
+      setLoading(false);
+    })();
+  }, [user?.id]);
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-12">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">{course.title}</h1>
-        <button
-          onClick={togglePublish}
-          className={`rounded-full px-4 py-2 text-sm font-semibold text-white ${
-            course.status === "published" ? "bg-slate-700" : "bg-emerald-600"
-          }`}
-        >
-          {course.status === "published" ? "Unpublish" : "Publish"}
-        </button>
-      </div>
+    <div className="mx-auto max-w-6xl px-4 py-12">
+      <h1 className="text-2xl font-bold text-slate-900">
+        Welcome back{profile?.full_name ? `, ${profile.full_name}` : ""}
+      </h1>
 
-      <div className="mt-6">
-        <label className="text-sm font-medium text-slate-700">Thumbnail</label>
-        <div className="mt-2 flex items-center gap-4">
-          {course.thumbnail_url && <img src={course.thumbnail_url} className="h-16 w-28 rounded-lg object-cover" />}
-          <input
-            type="file"
-            accept="image/*"
-            disabled={uploading}
-            onChange={(e) => e.target.files?.[0] && uploadThumbnail(e.target.files[0])}
-          />
-        </div>
-      </div>
-
-      <div className="mt-8 rounded-xl border border-slate-200 p-4">
-        <label className="text-sm font-medium text-slate-700">Price</label>
-        <div className="mt-2 flex flex-wrap items-end gap-3">
-          <div>
-            <div className="text-xs text-slate-500">Price (₹)</div>
-            <input
-              type="number"
-              min="0"
-              value={priceInput}
-              onChange={(e) => setPriceInput(e.target.value)}
-              className="mt-1 w-32 rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <div className="text-xs text-slate-500">Discount price (optional)</div>
-            <input
-              type="number"
-              min="0"
-              value={discountInput}
-              onChange={(e) => setDiscountInput(e.target.value)}
-              placeholder="none"
-              className="mt-1 w-32 rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            />
-          </div>
-          <button
-            onClick={savePrice}
-            disabled={savingPrice}
-            className="rounded-full bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
-          >
-            {savingPrice ? "Saving…" : "Save Price"}
-          </button>
-          {priceSaved && <span className="text-sm text-emerald-600">Saved ✓</span>}
-        </div>
-        <p className="mt-2 text-xs text-slate-400">Leave discount price empty to charge full price.</p>
-      </div>
-
-      <h2 className="mt-10 text-lg font-semibold text-slate-900">Modules & Lessons</h2>
-      <div className="mt-4 space-y-4">
-        {modules.map((m) => (
-          <div key={m.id} className="rounded-xl border border-slate-200 p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="font-medium text-slate-900">{m.title}</div>
-              <div className="flex items-center gap-3">
-                <button onClick={() => addLesson(m.id)} className="text-sm text-brand-600 hover:underline">
-                  + Add lesson
-                </button>
-                <button
-                  onClick={() => deleteModule(m.id, m.title)}
-                  className="text-sm text-red-600 hover:underline"
-                >
-                  Delete module
-                </button>
-              </div>
+      <h2 className="mt-10 text-lg font-semibold text-slate-900">My Courses</h2>
+      {loading ? (
+        <p className="mt-4 text-slate-500">Loading…</p>
+      ) : courses.length === 0 ? (
+        <p className="mt-4 text-slate-500">
+          You haven't purchased any courses yet. <Link to="/courses" className="text-brand-600">Browse courses</Link>
+        </p>
+      ) : (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {courses.map((c) => (
+            <div key={c.id} className="rounded-2xl border border-slate-200 p-4 hover:shadow-md">
+              <Link to={`/learn/${c.id}`}>
+                <div className="aspect-video overflow-hidden rounded-lg bg-slate-100">
+                  {c.thumbnail_url && <img src={c.thumbnail_url} className="h-full w-full object-cover" />}
+                </div>
+                <div className="mt-3 font-medium text-slate-900">{c.title}</div>
+                <div className="mt-2 h-2 w-full rounded-full bg-slate-100">
+                  <div className="h-2 rounded-full bg-brand-600" style={{ width: `${c.progressPct}%` }} />
+                </div>
+                <div className="mt-1 text-xs text-slate-500">{c.progressPct}% complete</div>
+              </Link>
+              <Link
+                to={c.lastLessonId ? `/learn/${c.id}?lesson=${c.lastLessonId}` : `/learn/${c.id}`}
+                className="mt-3 block rounded-full bg-brand-600 px-4 py-2 text-center text-sm font-medium text-white hover:bg-brand-700"
+              >
+                {c.progressPct > 0 ? "Continue Learning" : "Start Learning"}
+              </Link>
             </div>
-            <ul className="mt-2 space-y-2">
-              {(m.lessons ?? []).map((l: Lesson) => (
-                <li key={l.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                  <span>
-                    {l.title} <span className="text-slate-400">({l.content_type})</span>
-                    {l.content_reference ? (
-                      <span className="ml-2 text-emerald-600">file attached</span>
-                    ) : (
-                      <span className="ml-2 text-amber-600">no file yet</span>
-                    )}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {l.content_type !== "text" && (
-                      <input
-                        type="file"
-                        className="text-xs"
-                        onChange={(e) => e.target.files?.[0] && uploadLessonFile(l.id, e.target.files[0])}
-                      />
-                    )}
-                    <button
-                      onClick={() => deleteLesson(l.id, l.title)}
-                      className="text-xs text-red-600 hover:underline"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-
-        <div className="flex gap-2">
-          <input
-            value={newModuleTitle}
-            onChange={(e) => setNewModuleTitle(e.target.value)}
-            placeholder="New module title"
-            className="flex-1 rounded-lg border border-slate-200 px-4 py-2 text-sm"
-          />
-          <button onClick={addModule} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white">
-            Add Module
-          </button>
+          ))}
         </div>
+      )}
+
+      <h2 className="mt-12 text-lg font-semibold text-slate-900">Payment History</h2>
+      <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-slate-50 text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Course</th>
+              <th className="px-4 py-3">Amount</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {payments.map((p) => (
+              <tr key={p.id} className="border-t border-slate-100">
+                <td className="px-4 py-3">{p.courses?.title ?? "—"}</td>
+                <td className="px-4 py-3">{p.currency} {p.amount}</td>
+                <td className="px-4 py-3 capitalize">{p.status}</td>
+                <td className="px-4 py-3">{new Date(p.created_at).toLocaleDateString()}</td>
+              </tr>
+            ))}
+            {payments.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-4 py-6 text-center text-slate-400">No payments yet</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
