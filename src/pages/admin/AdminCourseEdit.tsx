@@ -10,9 +10,18 @@ export function AdminCourseEdit() {
   const [newModuleTitle, setNewModuleTitle] = useState("");
   const [uploading, setUploading] = useState(false);
 
+  const [priceInput, setPriceInput] = useState("");
+  const [discountInput, setDiscountInput] = useState("");
+  const [savingPrice, setSavingPrice] = useState(false);
+  const [priceSaved, setPriceSaved] = useState(false);
+
   async function refresh() {
     const { data: courseData } = await supabase.from("courses").select("*").eq("id", id).single();
     setCourse(courseData as Course);
+    if (courseData) {
+      setPriceInput(String(courseData.price ?? ""));
+      setDiscountInput(courseData.discount_price != null ? String(courseData.discount_price) : "");
+    }
 
     const { data: moduleData } = await supabase
       .from("modules")
@@ -25,6 +34,29 @@ export function AdminCourseEdit() {
   useEffect(() => {
     refresh();
   }, [id]);
+
+  async function savePrice() {
+    if (!course) return;
+    setSavingPrice(true);
+    setPriceSaved(false);
+
+    const newPrice = Number(priceInput);
+    const newDiscount = discountInput.trim() === "" ? null : Number(discountInput);
+
+    const { error } = await supabase
+      .from("courses")
+      .update({ price: newPrice, discount_price: newDiscount })
+      .eq("id", course.id);
+
+    setSavingPrice(false);
+    if (error) {
+      alert(error.message);
+    } else {
+      setPriceSaved(true);
+      refresh();
+      setTimeout(() => setPriceSaved(false), 2000);
+    }
+  }
 
   async function addModule() {
     if (!newModuleTitle.trim() || !course) return;
@@ -66,14 +98,11 @@ export function AdminCourseEdit() {
 
   async function uploadLessonFile(lessonId: string, file: File) {
     if (!course) return;
-    // Uploaded into the PRIVATE course-files bucket — never publicly readable.
-    // The admin's own session can write here because of the course_files_admin_all
-    // storage policy, which checks is_admin() server-side.
     const path = `${course.id}/${lessonId}/${file.name}`;
     const { error } = await supabase.storage.from("course-files").upload(path, file, {
-  upsert: true,
-  contentType: "text/html",
-});
+      upsert: true,
+      contentType: "text/html",
+    });
     if (!error) {
       await supabase.from("lessons").update({ content_reference: path }).eq("id", lessonId);
       refresh();
@@ -116,6 +145,44 @@ export function AdminCourseEdit() {
             onChange={(e) => e.target.files?.[0] && uploadThumbnail(e.target.files[0])}
           />
         </div>
+      </div>
+
+      <div className="mt-8 rounded-xl border border-slate-200 p-4">
+        <label className="text-sm font-medium text-slate-700">Price</label>
+        <div className="mt-2 flex flex-wrap items-end gap-3">
+          <div>
+            <div className="text-xs text-slate-500">Price (₹)</div>
+            <input
+              type="number"
+              min="0"
+              value={priceInput}
+              onChange={(e) => setPriceInput(e.target.value)}
+              className="mt-1 w-32 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <div className="text-xs text-slate-500">Discount price (optional)</div>
+            <input
+              type="number"
+              min="0"
+              value={discountInput}
+              onChange={(e) => setDiscountInput(e.target.value)}
+              placeholder="none"
+              className="mt-1 w-32 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+          <button
+            onClick={savePrice}
+            disabled={savingPrice}
+            className="rounded-full bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+          >
+            {savingPrice ? "Saving…" : "Save Price"}
+          </button>
+          {priceSaved && <span className="text-sm text-emerald-600">Saved ✓</span>}
+        </div>
+        <p className="mt-2 text-xs text-slate-400">
+          Leave discount price empty to charge full price.
+        </p>
       </div>
 
       <h2 className="mt-10 text-lg font-semibold text-slate-900">Modules & Lessons</h2>
