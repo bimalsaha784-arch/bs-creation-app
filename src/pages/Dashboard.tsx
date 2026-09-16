@@ -6,6 +6,7 @@ import type { Course } from "../types";
 
 interface OwnedCourse extends Course {
   progressPct: number;
+  lastLessonId: string | null;
 }
 
 export function Dashboard() {
@@ -40,8 +41,17 @@ export function Dashboard() {
           .eq("course_id", course.id)
           .eq("completed", true);
 
+        const { data: lastProgress } = await supabase
+          .from("progress")
+          .select("lesson_id, last_accessed_at")
+          .eq("user_id", user.id)
+          .eq("course_id", course.id)
+          .order("last_accessed_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
         const pct = totalLessons ? Math.round(((completedLessons ?? 0) / totalLessons) * 100) : 0;
-        owned.push({ ...course, progressPct: pct });
+        owned.push({ ...course, progressPct: pct, lastLessonId: lastProgress?.lesson_id ?? null });
       }
       setCourses(owned);
 
@@ -72,20 +82,24 @@ export function Dashboard() {
       ) : (
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {courses.map((c) => (
-            <Link
-              key={c.id}
-              to={`/learn/${c.id}`}
-              className="rounded-2xl border border-slate-200 p-4 hover:shadow-md"
-            >
-              <div className="aspect-video overflow-hidden rounded-lg bg-slate-100">
-                {c.thumbnail_url && <img src={c.thumbnail_url} className="h-full w-full object-cover" />}
-              </div>
-              <div className="mt-3 font-medium text-slate-900">{c.title}</div>
-              <div className="mt-2 h-2 w-full rounded-full bg-slate-100">
-                <div className="h-2 rounded-full bg-brand-600" style={{ width: `${c.progressPct}%` }} />
-              </div>
-              <div className="mt-1 text-xs text-slate-500">{c.progressPct}% complete</div>
-            </Link>
+            <div key={c.id} className="rounded-2xl border border-slate-200 p-4 hover:shadow-md">
+              <Link to={`/learn/${c.id}`}>
+                <div className="aspect-video overflow-hidden rounded-lg bg-slate-100">
+                  {c.thumbnail_url && <img src={c.thumbnail_url} className="h-full w-full object-cover" />}
+                </div>
+                <div className="mt-3 font-medium text-slate-900">{c.title}</div>
+                <div className="mt-2 h-2 w-full rounded-full bg-slate-100">
+                  <div className="h-2 rounded-full bg-brand-600" style={{ width: `${c.progressPct}%` }} />
+                </div>
+                <div className="mt-1 text-xs text-slate-500">{c.progressPct}% complete</div>
+              </Link>
+              <Link
+                to={c.lastLessonId ? `/learn/${c.id}?lesson=${c.lastLessonId}` : `/learn/${c.id}`}
+                className="mt-3 block rounded-full bg-brand-600 px-4 py-2 text-center text-sm font-medium text-white hover:bg-brand-700"
+              >
+                {c.progressPct > 0 ? "Continue Learning" : "Start Learning"}
+              </Link>
+            </div>
           ))}
         </div>
       )}
