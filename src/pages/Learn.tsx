@@ -11,6 +11,7 @@ export function Learn() {
   const [modules, setModules] = useState<(Module & { lessons: Lesson[] })[]>([]);
   const [activeLesson, setActiveLesson] = useState<Lesson | null>(null);
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
+  const [htmlContent, setHtmlContent] = useState<string | null>(null);
   const [contentError, setContentError] = useState<string | null>(null);
   const [loadingContent, setLoadingContent] = useState(false);
   const [courseTitle, setCourseTitle] = useState("");
@@ -41,10 +42,11 @@ export function Learn() {
   async function selectLesson(lesson: Lesson) {
     setActiveLesson(lesson);
     setSignedUrl(null);
+    setHtmlContent(null);
     setContentError(null);
     setNavOpen(false);
 
-    if (lesson.content_type === "text") return; // text lessons render inline, no signed URL needed
+    if (lesson.content_type === "text") return;
 
     setLoadingContent(true);
     try {
@@ -54,13 +56,19 @@ export function Learn() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Access denied");
       setSignedUrl(data.url);
+
+      if (lesson.content_type === "html_app") {
+        const htmlRes = await fetch(data.url);
+        const htmlText = await htmlRes.text();
+        setHtmlContent(htmlText);
+      }
     } catch (e: any) {
       setContentError(e.message);
     } finally {
       setLoadingContent(false);
     }
- }
-  
+  }
+
   async function markComplete() {
     if (!user || !activeLesson || !courseId) return;
     await supabase.from("progress").upsert(
@@ -77,7 +85,6 @@ export function Learn() {
 
   return (
     <div className="flex min-h-[calc(100vh-64px)] flex-col md:flex-row">
-      {/* Mobile nav toggle */}
       <button
         onClick={() => setNavOpen((v) => !v)}
         className="border-b border-slate-100 px-4 py-3 text-left text-sm font-medium text-slate-700 md:hidden"
@@ -85,7 +92,6 @@ export function Learn() {
         ☰ Course Content
       </button>
 
-      {/* Sidebar */}
       <aside
         className={`${navOpen ? "block" : "hidden"} w-full border-r border-slate-100 bg-slate-50 p-4 md:block md:w-72`}
       >
@@ -111,7 +117,6 @@ export function Learn() {
         ))}
       </aside>
 
-      {/* Content */}
       <section className="flex-1 p-6">
         {!activeLesson ? (
           <p className="text-slate-500">Select a lesson to begin.</p>
@@ -133,9 +138,9 @@ export function Learn() {
                 <iframe src={signedUrl} className="h-[600px] w-full rounded-xl" title={activeLesson.title} />
               )}
 
-              {!loadingContent && !contentError && activeLesson.content_type === "html_app" && signedUrl && (
+              {!loadingContent && !contentError && activeLesson.content_type === "html_app" && htmlContent && (
                 <iframe
-                  src={signedUrl}
+                  srcDoc={htmlContent}
                   className="h-[600px] w-full rounded-xl"
                   title={activeLesson.title}
                   sandbox="allow-scripts allow-same-origin"
