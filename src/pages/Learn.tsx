@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../hooks/useAuth";
@@ -16,6 +16,7 @@ export function Learn() {
   const [loadingContent, setLoadingContent] = useState(false);
   const [courseTitle, setCourseTitle] = useState("");
   const [navOpen, setNavOpen] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     if (!courseId) return;
@@ -83,6 +84,16 @@ export function Learn() {
     );
   }
 
+  function goFullscreen() {
+    const el = iframeRef.current;
+    if (!el) return;
+    if (el.requestFullscreen) {
+      el.requestFullscreen();
+    } else if ((el as any).webkitRequestFullscreen) {
+      (el as any).webkitRequestFullscreen();
+    }
+  }
+
   return (
     <div className="flex min-h-[calc(100vh-64px)] flex-col md:flex-row">
       <button
@@ -122,7 +133,17 @@ export function Learn() {
           <p className="text-slate-500">Select a lesson to begin.</p>
         ) : (
           <div>
-            <h2 className="text-xl font-semibold text-slate-900">{activeLesson.title}</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-slate-900">{activeLesson.title}</h2>
+              {activeLesson.content_type === "html_app" && htmlContent && (
+                <button
+                  onClick={goFullscreen}
+                  className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+                >
+                  ⛶ Fullscreen
+                </button>
+              )}
+            </div>
 
             <div className="mt-4 min-h-[400px] rounded-xl border border-slate-200 bg-white">
               {loadingContent && <div className="p-8 text-slate-400">Loading content…</div>}
@@ -140,10 +161,12 @@ export function Learn() {
 
               {!loadingContent && !contentError && activeLesson.content_type === "html_app" && htmlContent && (
                 <iframe
+                  ref={iframeRef}
                   srcDoc={htmlContent}
-                  className="h-[600px] w-full rounded-xl"
+                  className="h-[80vh] w-full rounded-xl"
                   title={activeLesson.title}
                   sandbox="allow-scripts allow-same-origin"
+                  allowFullScreen
                 />
               )}
 
