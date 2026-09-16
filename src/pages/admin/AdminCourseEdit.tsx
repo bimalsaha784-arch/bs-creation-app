@@ -1,139 +1,205 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../hooks/useAuth";
-import type { Course } from "../types";
+import type { Module, Lesson } from "../types";
 
-interface OwnedCourse extends Course {
-  progressPct: number;
-  lastLessonId: string | null;
-}
+export function Learn() {
+  const { courseId } = useParams();
+  const [searchParams] = useSearchParams();
+  const { session, user } = useAuth();
 
-export function Dashboard() {
-  const { user, profile } = useAuth();
-  const [courses, setCourses] = useState<OwnedCourse[]>([]);
-  const [payments, setPayments] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [modules, setModules] = useState<(Module & { lessons: Lesson[] })[]>([]);
+  const [activeLesson, setActiveLesson] = useState<Lesson | null>(null);
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+  const [htmlContent, setHtmlContent] = useState<string | null>(null);
+  const [contentError, setContentError] = useState<string | null>(null);
+  const [loadingContent, setLoadingContent] = useState(false);
+  const [courseTitle, setCourseTitle] = useState("");
+  const [navOpen, setNavOpen] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!courseId) return;
     (async () => {
-      const { data: enrollments } = await supabase
-        .from("enrollments")
-        .select("course_id, courses(*)")
-        .eq("user_id", user.id)
-        .eq("status", "active");
+      const { data: course } = await supabase.from("courses").select("title").eq("id", courseId).single();
+      setCourseTitle(course?.title ?? "");
 
-      const owned: OwnedCourse[] = [];
-      for (const e of enrollments ?? []) {
-        const course = (e as any).courses as Course;
-        if (!course) continue;
+      const { data: moduleData } = await supabase
+        .from("modules")
+        .select("*, lessons(*)")
+        .eq("course_id", courseId)
+        .order("position");
+      const withSortedLessons = (moduleData ?? []).map((m: any) => ({
+        ...m,
+        lessons: (m.lessons ?? []).sort((a: Lesson, b: Lesson) => a.position - b.position),
+      }));
+      setModules(withSortedLessons);
 
-        const { count: totalLessons } = await supabase
-          .from("lessons")
-          .select("id, modules!inner(course_id)", { count: "exact", head: true })
-          .eq("modules.course_id", course.id);
-
-        const { count: completedLessons } = await supabase
-          .from("progress")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", user.id)
-          .eq("course_id", course.id)
-          .eq("completed", true);
-
-        // Find the most recently accessed lesson for this course, so
-        // "Continue Learning" can jump straight back into it.
-        const { data: lastProgress } = await supabase
-          .from("progress")
-          .select("lesson_id, last_accessed_at")
-          .eq("user_id", user.id)
-          .eq("course_id", course.id)
-          .order("last_accessed_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        const pct = totalLessons ? Math.round(((completedLessons ?? 0) / totalLessons) * 100) : 0;
-        owned.push({ ...course, progressPct: pct, lastLessonId: lastProgress?.lesson_id ?? null });
+      // If a specific lesson was requested via ?lesson=..., open that one
+      // (used by the "Continue Learning" button on the dashboard).
+      const requestedLessonId = searchParams.get("lesson");
+      let toOpen: Lesson | null = null;
+      if (requestedLessonId) {
+        for (const m of withSortedLessons) {
+          const found = m.lessons.find((l: Lesson) => l.id === requestedLessonId);
+          if (found) {
+            toOpen = found;
+            break;
+          }
+        }
       }
-      setCourses(owned);
-
-      const { data: paymentRows } = await supabase
-        .from("payments")
-        .select("id, amount, currency, status, created_at, courses(title)")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
-      setPayments(paymentRows ?? []);
-
-      setLoading(false);
+      if (!toOpen && withSortedLessons[0]?.lessons?.[0]) {
+        toOpen = withSortedLessons[0].lessons[0];
+      }
+      if (toOpen) selectLesson(toOpen);
     })();
-  }, [user?.id]);
+  }, [courseId]);
+
+  async function selectLesson(lesson: Lesson) {
+    setActiveLesson(lesson);
+    setSignedUrl(null);
+    setHtmlContent(null);
+    setContentError(null);
+    setNavOpen(false);
+
+    if (lesson.content_type === "text") return;
+
+    setLoadingContent(true);
+    try {
+      const res = await fetch(`/api/get-signed-url?lessonId=${lesson.id}`, {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Access denied");
+      setSignedUrl(data.url);
+
+      if (lesson.content_type === "html_app") {
+        const htmlRes = await fetch(data.url);
+        const htmlText = await htmlRes.text();
+        setHtmlContent(htmlText);
+      }
+    } catch (e: any) {
+      setContentError(e.message);
+    } finally {
+      setLoadingContent(false);
+    }
+  }
+
+  async function markComplete() {
+    if (!user || !activeLesson || !courseId) return;
+    await supabase.from("progress").upsert(
+      {
+        user_id: user.id,
+        course_id: courseId,
+        lesson_id: activeLesson.id,
+        completed: true,
+        last_accessed_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id,lesson_id" }
+    );
+  }
+
+  function goFullscreen() {
+    const el = iframeRef.current;
+    if (!el) return;
+    if (el.requestFullscreen) {
+      el.requestFullscreen();
+    } else if ((el as any).webkitRequestFullscreen) {
+      (el as any).webkitRequestFullscreen();
+    }
+  }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-12">
-      <h1 className="text-2xl font-bold text-slate-900">
-        Welcome back{profile?.full_name ? `, ${profile.full_name}` : ""}
-      </h1>
+    <div className="flex min-h-[calc(100vh-64px)] flex-col md:flex-row">
+      <button
+        onClick={() => setNavOpen((v) => !v)}
+        className="border-b border-slate-100 px-4 py-3 text-left text-sm font-medium text-slate-700 md:hidden"
+      >
+        ☰ Course Content
+      </button>
 
-      <h2 className="mt-10 text-lg font-semibold text-slate-900">My Courses</h2>
-      {loading ? (
-        <p className="mt-4 text-slate-500">Loading…</p>
-      ) : courses.length === 0 ? (
-        <p className="mt-4 text-slate-500">
-          You haven't purchased any courses yet. <Link to="/courses" className="text-brand-600">Browse courses</Link>
-        </p>
-      ) : (
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {courses.map((c) => (
-            <div key={c.id} className="rounded-2xl border border-slate-200 p-4 hover:shadow-md">
-              <Link to={`/learn/${c.id}`}>
-                <div className="aspect-video overflow-hidden rounded-lg bg-slate-100">
-                  {c.thumbnail_url && <img src={c.thumbnail_url} className="h-full w-full object-cover" />}
-                </div>
-                <div className="mt-3 font-medium text-slate-900">{c.title}</div>
-                <div className="mt-2 h-2 w-full rounded-full bg-slate-100">
-                  <div className="h-2 rounded-full bg-brand-600" style={{ width: `${c.progressPct}%` }} />
-                </div>
-                <div className="mt-1 text-xs text-slate-500">{c.progressPct}% complete</div>
-              </Link>
-              <Link
-                to={c.lastLessonId ? `/learn/${c.id}?lesson=${c.lastLessonId}` : `/learn/${c.id}`}
-                className="mt-3 block rounded-full bg-brand-600 px-4 py-2 text-center text-sm font-medium text-white hover:bg-brand-700"
-              >
-                {c.progressPct > 0 ? "Continue Learning" : "Start Learning"}
-              </Link>
+      <aside
+        className={`${navOpen ? "block" : "hidden"} w-full border-r border-slate-100 bg-slate-50 p-4 md:block md:w-72`}
+      >
+        <div className="mb-4 font-semibold text-slate-900">{courseTitle}</div>
+        {modules.map((m) => (
+          <div key={m.id} className="mb-4">
+            <div className="mb-1 text-sm font-medium text-slate-700">{m.title}</div>
+            <ul>
+              {m.lessons.map((l) => (
+                <li key={l.id}>
+                  <button
+                    onClick={() => selectLesson(l)}
+                    className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
+                      activeLesson?.id === l.id ? "bg-brand-100 text-brand-700" : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    {l.title}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </aside>
+
+      <section className="flex-1 p-6">
+        {!activeLesson ? (
+          <p className="text-slate-500">Select a lesson to begin.</p>
+        ) : (
+          <div>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-slate-900">{activeLesson.title}</h2>
+              {activeLesson.content_type === "html_app" && htmlContent && (
+                <button
+                  onClick={goFullscreen}
+                  className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+                >
+                  ⛶ Fullscreen
+                </button>
+              )}
             </div>
-          ))}
-        </div>
-      )}
 
-      <h2 className="mt-12 text-lg font-semibold text-slate-900">Payment History</h2>
-      <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-500">
-            <tr>
-              <th className="px-4 py-3">Course</th>
-              <th className="px-4 py-3">Amount</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {payments.map((p) => (
-              <tr key={p.id} className="border-t border-slate-100">
-                <td className="px-4 py-3">{p.courses?.title ?? "—"}</td>
-                <td className="px-4 py-3">{p.currency} {p.amount}</td>
-                <td className="px-4 py-3 capitalize">{p.status}</td>
-                <td className="px-4 py-3">{new Date(p.created_at).toLocaleDateString()}</td>
-              </tr>
-            ))}
-            {payments.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-slate-400">No payments yet</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            <div className="mt-4 min-h-[400px] rounded-xl border border-slate-200 bg-white">
+              {loadingContent && <div className="p-8 text-slate-400">Loading content…</div>}
+              {contentError && (
+                <div className="p-8 text-red-600">
+                  {contentError === "You do not have access to this lesson"
+                    ? "You don't have access to this lesson. Please purchase the course to unlock it."
+                    : contentError}
+                </div>
+              )}
+
+              {!loadingContent && !contentError && activeLesson.content_type === "pdf" && signedUrl && (
+                <iframe src={signedUrl} className="h-[600px] w-full rounded-xl" title={activeLesson.title} />
+              )}
+
+              {!loadingContent && !contentError && activeLesson.content_type === "html_app" && htmlContent && (
+                <iframe
+                  ref={iframeRef}
+                  srcDoc={htmlContent}
+                  className="h-[80vh] w-full rounded-xl"
+                  title={activeLesson.title}
+                  sandbox="allow-scripts allow-same-origin"
+                  allowFullScreen
+                />
+              )}
+
+              {!loadingContent && !contentError && activeLesson.content_type === "video" && signedUrl && (
+                <video src={signedUrl} controls className="w-full rounded-xl" />
+              )}
+            </div>
+
+            <button
+              onClick={markComplete}
+              className="mt-4 rounded-full bg-brand-600 px-5 py-2 text-sm font-medium text-white hover:bg-brand-700"
+            >
+              Mark Complete
+            </button>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
