@@ -69,6 +69,15 @@ export function AdminCourseEdit() {
     refresh();
   }
 
+  async function deleteModule(moduleId: string, moduleTitle: string) {
+    const confirmed = window.confirm(
+      `Delete module "${moduleTitle}" and all its lessons? This cannot be undone.`
+    );
+    if (!confirmed) return;
+    await supabase.from("modules").delete().eq("id", moduleId);
+    refresh();
+  }
+
   async function addLesson(moduleId: string) {
     const title = window.prompt("Lesson title?");
     if (!title) return;
@@ -80,6 +89,13 @@ export function AdminCourseEdit() {
       position: modules.find((m) => m.id === moduleId)?.lessons.length ?? 0,
       status: "published",
     });
+    refresh();
+  }
+
+  async function deleteLesson(lessonId: string, lessonTitle: string) {
+    const confirmed = window.confirm(`Delete lesson "${lessonTitle}"? This cannot be undone.`);
+    if (!confirmed) return;
+    await supabase.from("lessons").delete().eq("id", lessonId);
     refresh();
   }
 
@@ -180,20 +196,26 @@ export function AdminCourseEdit() {
           </button>
           {priceSaved && <span className="text-sm text-emerald-600">Saved ✓</span>}
         </div>
-        <p className="mt-2 text-xs text-slate-400">
-          Leave discount price empty to charge full price.
-        </p>
+        <p className="mt-2 text-xs text-slate-400">Leave discount price empty to charge full price.</p>
       </div>
 
       <h2 className="mt-10 text-lg font-semibold text-slate-900">Modules & Lessons</h2>
       <div className="mt-4 space-y-4">
         {modules.map((m) => (
           <div key={m.id} className="rounded-xl border border-slate-200 p-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div className="font-medium text-slate-900">{m.title}</div>
-              <button onClick={() => addLesson(m.id)} className="text-sm text-brand-600 hover:underline">
-                + Add lesson
-              </button>
+              <div className="flex items-center gap-3">
+                <button onClick={() => addLesson(m.id)} className="text-sm text-brand-600 hover:underline">
+                  + Add lesson
+                </button>
+                <button
+                  onClick={() => deleteModule(m.id, m.title)}
+                  className="text-sm text-red-600 hover:underline"
+                >
+                  Delete module
+                </button>
+              </div>
             </div>
             <ul className="mt-2 space-y-2">
               {(m.lessons ?? []).map((l) => (
@@ -206,13 +228,21 @@ export function AdminCourseEdit() {
                       <span className="ml-2 text-amber-600">no file yet</span>
                     )}
                   </span>
-                  {l.content_type !== "text" && (
-                    <input
-                      type="file"
-                      className="text-xs"
-                      onChange={(e) => e.target.files?.[0] && uploadLessonFile(l.id, e.target.files[0])}
-                    />
-                  )}
+                  <div className="flex items-center gap-2">
+                    {l.content_type !== "text" && (
+                      <input
+                        type="file"
+                        className="text-xs"
+                        onChange={(e) => e.target.files?.[0] && uploadLessonFile(l.id, e.target.files[0])}
+                      />
+                    )}
+                    <button
+                      onClick={() => deleteLesson(l.id, l.title)}
+                      className="text-xs text-red-600 hover:underline"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
