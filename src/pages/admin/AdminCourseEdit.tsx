@@ -115,6 +115,9 @@ export function AdminCourseEdit() {
   async function uploadLessonFile(lessonId: string, file: File) {
     if (!course) return;
     const path = `${course.id}/${lessonId}/${file.name}`;
+    // Always force text/html for html_app-style uploads: some mobile browsers
+    // report the wrong (or empty) MIME type for .html files, which otherwise
+    // gets stored as-is and served with the wrong Content-Type.
     const { error } = await supabase.storage.from("course-files").upload(path, file, {
       upsert: true,
       contentType: "text/html",
