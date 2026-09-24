@@ -10,6 +10,7 @@ interface AuthContextValue {
   loading: boolean;
   signOut: () => Promise<void>;
   signInWithGoogle: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -32,18 +33,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => listener.subscription.unsubscribe();
   }, []);
 
+  async function loadProfile(userId: string) {
+    const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
+    setProfile(data as Profile);
+  }
+
   useEffect(() => {
     if (!session?.user) {
       setProfile(null);
       return;
     }
-    supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", session.user.id)
-      .single()
-      .then(({ data }) => setProfile(data as Profile));
+    loadProfile(session.user.id);
   }, [session?.user?.id]);
+
+  async function refreshProfile() {
+    if (session?.user) await loadProfile(session.user.id);
+  }
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -58,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ session, user: session?.user ?? null, profile, loading, signOut, signInWithGoogle }}
+      value={{ session, user: session?.user ?? null, profile, loading, signOut, signInWithGoogle, refreshProfile }}
     >
       {children}
     </AuthContext.Provider>

@@ -15,12 +15,28 @@ export function AdminCourseEdit() {
   const [savingPrice, setSavingPrice] = useState(false);
   const [priceSaved, setPriceSaved] = useState(false);
 
+  // Course details (title, descriptions, etc.) — editable after creation
+  const [details, setDetails] = useState({
+    title: "", short_description: "", description: "", instructor_name: "", duration: "", level: "", language: "",
+  });
+  const [savingDetails, setSavingDetails] = useState(false);
+  const [detailsSaved, setDetailsSaved] = useState(false);
+
   async function refresh() {
     const { data: courseData } = await supabase.from("courses").select("*").eq("id", id).single();
     setCourse(courseData as Course);
     if (courseData) {
       setPriceInput(String(courseData.price ?? ""));
       setDiscountInput(courseData.discount_price != null ? String(courseData.discount_price) : "");
+      setDetails({
+        title: courseData.title ?? "",
+        short_description: courseData.short_description ?? "",
+        description: courseData.description ?? "",
+        instructor_name: courseData.instructor_name ?? "",
+        duration: courseData.duration ?? "",
+        level: courseData.level ?? "",
+        language: courseData.language ?? "",
+      });
     }
 
     const { data: moduleData } = await supabase
@@ -55,6 +71,33 @@ export function AdminCourseEdit() {
       setPriceSaved(true);
       refresh();
       setTimeout(() => setPriceSaved(false), 2000);
+    }
+  }
+
+  async function saveDetails() {
+    if (!course || !details.title.trim()) return;
+    setSavingDetails(true);
+    setDetailsSaved(false);
+    const clean = (v: string) => (v.trim() === "" ? null : v.trim());
+    const { error } = await supabase
+      .from("courses")
+      .update({
+        title: details.title.trim(),
+        short_description: clean(details.short_description),
+        description: clean(details.description),
+        instructor_name: clean(details.instructor_name),
+        duration: clean(details.duration),
+        level: clean(details.level),
+        language: clean(details.language),
+      })
+      .eq("id", course.id);
+    setSavingDetails(false);
+    if (error) {
+      alert(error.message);
+    } else {
+      setDetailsSaved(true);
+      refresh();
+      setTimeout(() => setDetailsSaved(false), 2000);
     }
   }
 
@@ -114,10 +157,19 @@ export function AdminCourseEdit() {
 
   async function uploadLessonFile(lessonId: string, file: File) {
     if (!course) return;
+    // Uploaded into the PRIVATE course-files bucket — never publicly readable.
+    // The admin's own session can write here because of the course_files_admin_all
+    // storage policy, which checks is_admin() server-side.
+    // contentType is force-set to text/html for html_app lessons because some
+    // mobile browsers report the wrong (or empty) MIME type for .html files.
     const path = `${course.id}/${lessonId}/${file.name}`;
+    const lessonType = modules.flatMap((m) => m.lessons ?? []).find((l) => l.id === lessonId)?.content_type;
+    const isHtml = lessonType === "html_app" || /\.html?$/i.test(file.name);
     const { error } = await supabase.storage.from("course-files").upload(path, file, {
       upsert: true,
-      contentType: "text/html",
+      // Previously this was always "text/html", which made uploaded PDFs/videos
+      // display as garbled text. Only HTML apps need the forced type.
+      contentType: isHtml ? "text/html" : file.type || undefined,
     });
     if (!error) {
       await supabase.from("lessons").update({ content_reference: path }).eq("id", lessonId);
@@ -148,6 +200,58 @@ export function AdminCourseEdit() {
         >
           {course.status === "published" ? "Unpublish" : "Publish"}
         </button>
+      </div>
+
+      <div className="mt-6 rounded-xl border border-slate-200 p-4">
+        <div className="text-sm font-medium text-slate-700">Course details</div>
+        <p className="mt-1 text-xs text-slate-500">
+          Shown on course cards and the course page. The URL (slug: {course.slug}) stays the same.
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {([
+            ["title", "Title"],
+            ["instructor_name", "Instructor"],
+            ["duration", "Duration (e.g. 3 months)"],
+            ["level", "Level (e.g. Class 10)"],
+            ["language", "Language"],
+          ] as const).map(([key, label]) => (
+            <label key={key} className={key === "title" ? "sm:col-span-2" : ""}>
+              <span className="text-xs text-slate-500">{label}</span>
+              <input
+                value={details[key]}
+                onChange={(e) => setDetails((d) => ({ ...d, [key]: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+            </label>
+          ))}
+          <label className="sm:col-span-2">
+            <span className="text-xs text-slate-500">Short description (course cards, 1–2 lines)</span>
+            <input
+              value={details.short_description}
+              onChange={(e) => setDetails((d) => ({ ...d, short_description: e.target.value }))}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="sm:col-span-2">
+            <span className="text-xs text-slate-500">Full description (course page)</span>
+            <textarea
+              rows={5}
+              value={details.description}
+              onChange={(e) => setDetails((d) => ({ ...d, description: e.target.value }))}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </label>
+        </div>
+        <div className="mt-3 flex items-center gap-3">
+          <button
+            onClick={saveDetails}
+            disabled={savingDetails || !details.title.trim()}
+            className="rounded-full bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+          >
+            {savingDetails ? "Saving…" : "Save details"}
+          </button>
+          {detailsSaved && <span className="text-sm text-emerald-600">Saved</span>}
+        </div>
       </div>
 
       <div className="mt-6">
@@ -200,6 +304,10 @@ export function AdminCourseEdit() {
       </div>
 
       <h2 className="mt-10 text-lg font-semibold text-slate-900">Modules & Lessons</h2>
+      <p className="mt-1 text-xs text-slate-500">
+        Module titles appear as the course's subjects on course cards. PDF lessons count as notes; HTML-app lessons count
+        as practice sets, or as mock tests if the lesson title contains the word "Mock" (e.g. "Mock Test 1").
+      </p>
       <div className="mt-4 space-y-4">
         {modules.map((m) => (
           <div key={m.id} className="rounded-xl border border-slate-200 p-4">

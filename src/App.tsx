@@ -10,6 +10,7 @@ import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { Dashboard } from "./pages/Dashboard";
 import { Learn } from "./pages/Learn";
+import { Profile } from "./pages/Profile";
 import { About, Contact, FAQ, PrivacyPolicy, Terms, RefundPolicy } from "./pages/StaticPages";
 import { AdminDashboard } from "./pages/admin/AdminDashboard";
 import { AdminCourses } from "./pages/admin/AdminCourses";
@@ -38,6 +39,7 @@ export default function App() {
             {/* Student (protected) */}
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/learn/:courseId" element={<ProtectedRoute><Learn /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
 
             {/* Admin (protected) */}
             <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />

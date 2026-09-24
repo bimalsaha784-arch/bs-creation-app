@@ -2,6 +2,7 @@ import { useState, FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../hooks/useAuth";
+import { AuthShell, GoogleButton, OrDivider } from "../components/AuthShell";
 
 export function Register() {
   const { signInWithGoogle } = useAuth();
@@ -35,59 +36,34 @@ export function Register() {
   }
 
   return (
-    <div className="mx-auto flex max-w-md flex-col gap-6 px-4 py-16">
-      <h1 className="text-2xl font-bold text-slate-900">Create your account</h1>
-
-      <button
-        onClick={signInWithGoogle}
-        className="flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-      >
-        Continue with Google
-      </button>
-
-      <div className="flex items-center gap-3 text-xs text-slate-400">
-        <div className="h-px flex-1 bg-slate-200" /> OR <div className="h-px flex-1 bg-slate-200" />
-      </div>
-
-      <form onSubmit={handleRegister} className="flex flex-col gap-3">
-        <input
-          required
-          placeholder="Full name"
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          className="rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-brand-500"
-        />
-        <input
-          type="email"
-          required
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-brand-500"
-        />
-        <input
-          type="password"
-          required
-          minLength={8}
-          placeholder="Password (min 8 characters)"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-brand-500"
-        />
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        {notice && <p className="text-sm text-emerald-600">{notice}</p>}
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-full bg-brand-600 py-3 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
-        >
+    <AuthShell title="Create your account" subtitle="Free to sign up. You only pay for the courses you choose.">
+      <GoogleButton onClick={signInWithGoogle} />
+      <OrDivider />
+      <form onSubmit={handleRegister} className="space-y-4">
+        <div>
+          <label htmlFor="name" className="label">Full name</label>
+          <input id="name" required autoComplete="name" value={fullName}
+            onChange={(e) => setFullName(e.target.value)} className="input" />
+        </div>
+        <div>
+          <label htmlFor="email" className="label">Email</label>
+          <input id="email" type="email" required autoComplete="email" inputMode="email" value={email}
+            onChange={(e) => setEmail(e.target.value)} className="input" placeholder="you@example.com" />
+        </div>
+        <div>
+          <label htmlFor="password" className="label">Password</label>
+          <input id="password" type="password" required minLength={8} autoComplete="new-password" value={password}
+            onChange={(e) => setPassword(e.target.value)} className="input" placeholder="At least 8 characters" />
+        </div>
+        {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{error}</p>}
+        {notice && <p className="rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-800" role="status">{notice}</p>}
+        <button type="submit" disabled={loading} className="btn-primary h-12 w-full text-base">
           {loading ? "Creating account…" : "Create account"}
         </button>
       </form>
-
-      <p className="text-center text-sm text-slate-500">
-        Already have an account? <Link to="/login" className="font-medium text-brand-600">Log in</Link>
+      <p className="mt-6 text-center text-sm text-ink/60">
+        Already have an account? <Link to="/login" className="font-semibold text-brand-700 hover:underline">Log in</Link>
       </p>
-    </div>
+    </AuthShell>
   );
 }
