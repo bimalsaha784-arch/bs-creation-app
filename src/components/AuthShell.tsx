@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Logo } from "./Logo";
 import { IconCheck } from "./Icons";
+import { LoginAnimation } from "./LoginAnimation";
 
 /** Shared layout for Login / Register: brand panel on desktop, clean single column on mobile. */
 export function AuthShell({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
@@ -9,6 +10,7 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
       <div className="chalk-grid hidden flex-col justify-between rounded-3xl bg-brand-700 p-10 text-white lg:flex">
         <Logo tone="dark" size="lg" to={null} />
         <div>
+          <LoginAnimation />
           <p className="font-display text-3xl font-bold leading-tight text-white">
             All your courses, notes, practice sets and mock tests under one login.
           </p>
@@ -27,6 +29,7 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
         <div className="w-full max-w-md">
           <div className="lg:hidden">
             <Logo size="lg" to={null} />
+            <LoginAnimation />
           </div>
           <h1 className="mt-6 font-display text-3xl font-extrabold lg:mt-0">{title}</h1>
           <p className="mt-2 text-ink/65">{subtitle}</p>
