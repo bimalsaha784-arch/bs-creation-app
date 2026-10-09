@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import type { SVGProps } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { BRAND } from "../config/brand";
 import { firstName } from "../lib/format";
 import { Logo } from "./Logo";
-import { IconChevronDown, IconClose, IconMenu, IconUser } from "./Icons";
+import { ErrorBoundary } from "./ErrorBoundary";
+import { IconChevronDown, IconClose, IconLayers, IconMenu, IconPlay, IconSearch, IconUser } from "./Icons";
 
 type NavItem = { to: string; label: string; end?: boolean; hash?: string };
 
@@ -52,6 +54,8 @@ export function Layout() {
   const profileRef = useRef<HTMLDivElement>(null);
 
   const nav = session ? STUDENT_NAV : PUBLIC_NAV;
+  // Phone tab bar only on the main browsing pages (not on course detail / lesson pages, which have their own bottom bars).
+  const showTabs = ["/", "/courses", "/dashboard", "/profile"].includes(location.pathname);
   const displayName = firstName(profile?.full_name) || user?.email?.split("@")[0] || "Account";
 
   // Close menus on navigation
@@ -101,11 +105,11 @@ export function Layout() {
     }`;
 
   return (
-    <div className="flex min-h-screen flex-col [overflow-x:clip]">
+    <div className={`flex min-h-screen flex-col [overflow-x:clip] ${showTabs ? "pb-[calc(64px+env(safe-area-inset-bottom))] lg:pb-0" : ""}`}>
       <ScrollManager />
-      <header className="sticky top-0 z-40 border-b border-line bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+      <header className="sticky top-0 z-40 bg-white/95 shadow-[0_10px_30px_-18px_rgba(10,31,74,0.45)] backdrop-blur">
         <nav className="page flex h-16 items-center justify-between gap-4" aria-label="Main">
-          <Logo size="md" />
+          <Logo size="md" tagline={BRAND.shortTagline} />
 
           <div className="hidden items-center gap-1 lg:flex">
             {nav.map((item) => (
@@ -114,6 +118,8 @@ export function Layout() {
               </NavLink>
             ))}
           </div>
+
+          <HeaderSearch />
 
           <div className="hidden items-center gap-2 lg:flex">
             {session ? (
@@ -237,11 +243,83 @@ export function Layout() {
       </div>
 
       <main className="flex-1">
-        <Outlet />
+        {/* A crash inside a page shows a message here; the navbar keeps working and
+            moving to another page clears it. */}
+        <ErrorBoundary resetKey={location.pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
 
       <Footer loggedIn={!!session} />
+      {showTabs && <MobileTabBar loggedIn={!!session} />}
     </div>
+  );
+}
+
+/** Search box in the desktop header — sends the visitor to the course list with the search applied. */
+function HeaderSearch() {
+  const navigate = useNavigate();
+  const [q, setQ] = useState("");
+  return (
+    <form
+      role="search"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const t = q.trim();
+        navigate(t ? `/courses?q=${encodeURIComponent(t)}` : "/courses");
+        setQ("");
+      }}
+      className="hidden w-56 items-center gap-2 rounded-xl border border-line bg-paper px-3 focus-within:border-brand-400 focus-within:bg-white xl:flex 2xl:w-72"
+    >
+      <IconSearch width={16} height={16} className="shrink-0 text-ink/40" />
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search courses"
+        aria-label="Search courses"
+        className="h-10 min-w-0 flex-1 bg-transparent text-sm text-ink placeholder:text-ink/40 focus:outline-none"
+      />
+    </form>
+  );
+}
+
+const IconHome = (p: SVGProps<SVGSVGElement>) => (
+  <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...p}>
+    <path d="M3 11.5 12 4l9 7.5" />
+    <path d="M5.5 10v9a1 1 0 0 0 1 1H10v-5h4v5h3.5a1 1 0 0 0 1-1v-9" />
+  </svg>
+);
+
+/** Bottom tab bar for phones: Home · Courses · My Courses · Profile. */
+function MobileTabBar({ loggedIn }: { loggedIn: boolean }) {
+  const tabs = [
+    { to: "/", label: "Home", end: true, icon: IconHome },
+    { to: "/courses", label: "Courses", end: true, icon: IconLayers },
+    { to: loggedIn ? "/dashboard" : "/login", label: loggedIn ? "My Courses" : "Log in", end: true, icon: IconPlay },
+    { to: loggedIn ? "/profile" : "/register", label: loggedIn ? "Profile" : "Sign up", end: true, icon: IconUser },
+  ];
+  return (
+    <nav
+      aria-label="Quick navigation"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-10px_30px_-18px_rgba(10,31,74,0.45)] backdrop-blur lg:hidden"
+    >
+      <ul className="mx-auto grid max-w-md grid-cols-4">
+        {tabs.map(({ to, label, end, icon: Icon }) => (
+          <li key={label}>
+            <NavLink to={to} end={end} className="flex min-h-[60px] flex-col items-center justify-center gap-0.5 text-[11px] font-semibold">
+              {({ isActive }) => (
+                <>
+                  <span className={`flex h-8 w-14 items-center justify-center rounded-full transition-colors ${isActive ? "bg-brand-100 text-brand-700" : "text-ink/50"}`}>
+                    <Icon width={22} height={22} />
+                  </span>
+                  <span className={isActive ? "text-brand-700" : "text-ink/55"}>{label}</span>
+                </>
+              )}
+            </NavLink>
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }
 

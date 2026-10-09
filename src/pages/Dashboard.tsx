@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../hooks/useAuth";
 import { useCheckout } from "../hooks/useCheckout";
 import { CheckoutNotice } from "../components/CheckoutNotice";
+import { LoadError } from "../components/LoadError";
 import { CourseCard, CourseCardSkeleton } from "../components/CourseCard";
 import { CourseThumb } from "../components/CourseThumb";
 import { fetchPublishedCourses, type CatalogCourse } from "../lib/catalog";
@@ -28,60 +29,78 @@ export function Dashboard() {
   const [courses, setCourses] = useState<OwnedCourse[]>([]);
   const [explore, setExplore] = useState<CatalogCourse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const checkout = useCheckout();
 
   useEffect(() => {
     if (!user) return;
+    let active = true;
     (async () => {
-      // Same enrollment query as before — this is what grants course access.
-      const [{ data: enrollments }, catalog] = await Promise.all([
-        supabase
-          .from("enrollments")
-          .select("course_id, courses(*)")
-          .eq("user_id", user.id)
-          .eq("status", "active"),
-        fetchPublishedCourses(),
-      ]);
+      setLoading(true);
+      setLoadError(false);
+      try {
+        // Same enrollment query as before — this is what grants course access.
+        const [{ data: enrollments, error: enrollError }, catalog] = await Promise.all([
+          supabase
+            .from("enrollments")
+            .select("course_id, courses(*)")
+            .eq("user_id", user.id)
+            .eq("status", "active"),
+          fetchPublishedCourses(),
+        ]);
+        // A failed request must never look like "you own no courses".
+        if (enrollError) throw enrollError;
 
-      const ownedIds = new Set<string>((enrollments ?? []).map((e: any) => e.course_id));
+        const ownedIds = new Set<string>((enrollments ?? []).map((e: any) => e.course_id));
 
-      // Progress per course (same queries as before, now run in parallel).
-      const owned = await Promise.all(
-        (enrollments ?? [])
-          .map((e: any) => e.courses as Course | null)
-          .filter((c): c is Course => !!c)
-          .map(async (course): Promise<OwnedCourse> => {
-            const [{ count: totalLessons }, { count: completedLessons }, { data: lastProgress }] = await Promise.all([
-              supabase
-                .from("lessons")
-                .select("id, modules!inner(course_id)", { count: "exact", head: true })
-                .eq("modules.course_id", course.id),
-              supabase
-                .from("progress")
-                .select("id", { count: "exact", head: true })
-                .eq("user_id", user.id)
-                .eq("course_id", course.id)
-                .eq("completed", true),
-              supabase
-                .from("progress")
-                .select("lesson_id, last_accessed_at")
-                .eq("user_id", user.id)
-                .eq("course_id", course.id)
-                .order("last_accessed_at", { ascending: false })
-                .limit(1)
-                .maybeSingle(),
-            ]);
-            const pct = totalLessons ? Math.round(((completedLessons ?? 0) / totalLessons) * 100) : 0;
-            return { ...course, progressPct: Math.min(pct, 100), lastLessonId: lastProgress?.lesson_id ?? null };
-          })
-      );
+        // Progress per course (same queries as before, run in parallel).
+        const owned = await Promise.all(
+          (enrollments ?? [])
+            .map((e: any) => e.courses as Course | null)
+            .filter((c): c is Course => !!c)
+            .map(async (course): Promise<OwnedCourse> => {
+              const [{ count: totalLessons }, { count: completedLessons }, { data: lastProgress }] = await Promise.all([
+                supabase
+                  .from("lessons")
+                  .select("id, modules!inner(course_id)", { count: "exact", head: true })
+                  .eq("modules.course_id", course.id),
+                supabase
+                  .from("progress")
+                  .select("id", { count: "exact", head: true })
+                  .eq("user_id", user.id)
+                  .eq("course_id", course.id)
+                  .eq("completed", true),
+                supabase
+                  .from("progress")
+                  .select("lesson_id, last_accessed_at")
+                  .eq("user_id", user.id)
+                  .eq("course_id", course.id)
+                  .order("last_accessed_at", { ascending: false })
+                  .limit(1)
+                  .maybeSingle(),
+              ]);
+              const pct = totalLessons ? Math.round(((completedLessons ?? 0) / totalLessons) * 100) : 0;
+              return { ...course, progressPct: Math.min(pct, 100), lastLessonId: lastProgress?.lesson_id ?? null };
+            })
+        );
 
-      setCourses(owned);
-      setExplore(catalog.filter((c) => !ownedIds.has(c.id)));
-      setLoading(false);
+        if (!active) return;
+        setCourses(owned);
+        setExplore(catalog.filter((c) => !ownedIds.has(c.id)));
+      } catch (err) {
+        console.error("Dashboard: could not load courses:", err);
+        if (active) setLoadError(true);
+      } finally {
+        // Always stop the loading state — otherwise one failed request means a spinner forever.
+        if (active) setLoading(false);
+      }
     })();
-    // location.key → refresh after a purchase redirects back here
-  }, [user?.id, location.key]);
+    return () => {
+      active = false;
+    };
+    // location.key → refresh after a purchase redirects back here; attempt → "Try again" button
+  }, [user?.id, location.key, attempt]);
 
   const name = firstName(profile?.full_name);
   const justPurchased = location.state?.justPurchased;
@@ -97,6 +116,8 @@ export function Dashboard() {
             <p className="mt-2 text-ink/65">
               {loading
                 ? "Loading your courses…"
+                : loadError
+                ? "We couldn't load your courses right now."
                 : courses.length === 0
                 ? "You haven't unlocked a course yet. Pick one below to get started."
                 : `You have ${courses.length} ${courses.length === 1 ? "course" : "courses"} in your library${
@@ -130,6 +151,11 @@ export function Dashboard() {
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {[0, 1, 2].map((i) => <CourseCardSkeleton key={i} />)}
             </div>
+          ) : loadError ? (
+            <LoadError
+              message="We couldn't load your courses. Your purchases are safe. Please check your internet connection and try again."
+              onRetry={() => setAttempt((n) => n + 1)}
+            />
           ) : courses.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-brand-200 bg-white p-8 text-center sm:p-10">
               <h3 className="text-lg font-bold">Your purchased courses will appear here</h3>
@@ -161,7 +187,7 @@ export function Dashboard() {
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {[0, 1, 2].map((i) => <CourseCardSkeleton key={i} />)}
             </div>
-          ) : explore.length === 0 ? (
+          ) : loadError ? null : explore.length === 0 ? (
             <div className="rounded-2xl border border-line bg-white p-8 text-center">
               <h3 className="text-lg font-bold">You own every course on BS Creation</h3>
               <p className="mt-2 text-ink/65">New courses will show up here as soon as they're published.</p>

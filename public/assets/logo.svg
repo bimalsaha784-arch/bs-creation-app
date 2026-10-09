@@ -1,8 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="116" fill="#1F4D3A"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1F489F"/>
+      <stop offset="1" stop-color="#0A1F4A"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
   <g stroke="#ffffff" stroke-opacity="0.07" stroke-width="3">
     <path d="M0 128H512M0 256H512M0 384H512M128 0V512M256 0V512M384 0V512"/>
   </g>
   <text x="256" y="318" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-weight="bold" font-size="210" letter-spacing="-8" fill="#ffffff">BS</text>
-  <rect x="120" y="360" width="272" height="30" rx="15" fill="#F2A516"/>
+  <rect x="120" y="360" width="272" height="30" rx="15" fill="#FDB913"/>
 </svg>

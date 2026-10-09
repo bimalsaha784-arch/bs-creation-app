@@ -1,48 +1,73 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import type { FormEvent } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useCheckout } from "../hooks/useCheckout";
 import { CheckoutNotice } from "../components/CheckoutNotice";
+import { LoadError } from "../components/LoadError";
 import { CourseCard, CourseCardSkeleton } from "../components/CourseCard";
+import { HeroScene } from "../components/Hero3D";
 import { fetchOwnedCourseIds, fetchPublishedCourses, type CatalogCourse } from "../lib/catalog";
-import { IconCheck, IconDoc, IconPencil, IconTimer, IconPhone, IconLayers, IconShield, IconChart } from "../components/Icons";
+import {
+  IconCheck, IconDoc, IconPencil, IconTimer, IconPhone, IconLayers, IconShield, IconChart, IconSearch,
+} from "../components/Icons";
 
 export function Home() {
   const { session, user } = useAuth();
   const [featured, setFeatured] = useState<CatalogCourse[]>([]);
   const [ownedIds, setOwnedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const checkout = useCheckout();
 
   useEffect(() => {
+    let active = true;
     (async () => {
-      setFeatured(await fetchPublishedCourses(6));
-      if (user) setOwnedIds(await fetchOwnedCourseIds(user.id));
-      setLoading(false);
+      setLoading(true);
+      setLoadError(false);
+      try {
+        const courses = await fetchPublishedCourses(6);
+        const owned = user ? await fetchOwnedCourseIds(user.id) : new Set<string>();
+        if (!active) return;
+        setFeatured(courses);
+        setOwnedIds(owned);
+      } catch (err) {
+        console.error("Home: could not load courses:", err);
+        if (active) setLoadError(true);
+      } finally {
+        if (active) setLoading(false);
+      }
     })();
-  }, [user?.id]);
+    return () => {
+      active = false;
+    };
+  }, [user?.id, attempt]);
 
   return (
     <div>
-      <Hero loggedIn={!!session} />
+      <Hero loggedIn={!!session} courses={featured} />
+      <FeatureStrip />
 
-      {/* Featured courses */}
-      <section className="page py-16 sm:py-20">
+      {/* Courses */}
+      <section id="courses" className="page py-12 sm:py-16">
         <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h2 className="section-title">Courses</h2>
+            <h2 className="section-title">Featured courses</h2>
             <p className="mt-2 max-w-xl text-ink/65">Each course has its own notes, practice sets and mock tests. Buy one, or several — they all stay in your account.</p>
           </div>
           <Link to="/courses" className="btn-secondary">View all courses</Link>
         </div>
         {loading ? (
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
             {[0, 1, 2].map((i) => <CourseCardSkeleton key={i} />)}
           </div>
+        ) : loadError ? (
+          <LoadError onRetry={() => setAttempt((n) => n + 1)} />
         ) : featured.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-line bg-white p-8 text-center text-ink/60">New courses are being added. Check back soon.</p>
         ) : (
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
             {featured.map((c) => (
               <CourseCard
                 key={c.id}
@@ -57,92 +82,12 @@ export function Home() {
         )}
       </section>
 
-      {/* What's inside every course */}
-      <section className="chalk-grid bg-brand-700 text-white">
-        <div className="page py-16 sm:py-20">
-          <h2 className="max-w-2xl font-display text-2xl font-bold text-white sm:text-[32px] sm:leading-tight">
-            Read the chapter, practise it, then test yourself under exam conditions.
-          </h2>
-          <div className="mt-10 grid gap-px overflow-hidden rounded-2xl bg-white/15 md:grid-cols-3">
-            {[
-              {
-                icon: IconDoc,
-                title: "Reading material",
-                body: "Chapter-wise PDF notes you can open in the course player on any device, whenever you need to revise.",
-              },
-              {
-                icon: IconPencil,
-                title: "Practice questions",
-                body: "Topic-wise question sets to use right after each chapter, so gaps show up early instead of on exam day.",
-              },
-              {
-                icon: IconTimer,
-                title: "Mock tests",
-                body: "Timed tests to take once you've covered the syllabus, so you can check your speed and accuracy.",
-              },
-            ].map(({ icon: Icon, title, body }) => (
-              <div key={title} className="bg-brand-700 p-6 sm:p-8">
-                <Icon width={28} height={28} className="text-marigold-300" />
-                <h3 className="mt-4 text-lg font-bold text-white">{title}</h3>
-                <p className="mt-2 text-[15px] leading-relaxed text-white/75">{body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Why BS Creation */}
-      <section className="page grid gap-10 py-16 sm:py-20 lg:grid-cols-[1fr_1.3fr] lg:gap-16">
-        <div>
-          <h2 className="section-title">Why students choose BS Creation</h2>
-          <p className="mt-3 max-w-md leading-relaxed text-ink/65">
-            One account for all your preparation. Your courses, progress and payment receipts stay together, and adding another course never affects the ones you already have.
-          </p>
-        </div>
-        <ul className="grid gap-x-8 gap-y-7 sm:grid-cols-2">
-          {[
-            { icon: IconLayers, title: "Organised by subject", body: "Every course is split into subjects and chapters, so you always know what to study next." },
-            { icon: IconChart, title: "Progress you can see", body: "Mark lessons complete and pick up exactly where you left off from your dashboard." },
-            { icon: IconPhone, title: "Made for your phone", body: "Notes, practice and tests all work on a mobile screen. No app to install." },
-            { icon: IconShield, title: "Secure payments", body: "Pay with UPI, cards or net banking through Razorpay. Access unlocks right after payment." },
-          ].map(({ icon: Icon, title, body }) => (
-            <li key={title} className="flex gap-4">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
-                <Icon width={22} height={22} />
-              </span>
-              <div>
-                <h3 className="text-base font-bold">{title}</h3>
-                <p className="mt-1 text-[15px] leading-relaxed text-ink/65">{body}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {/* How it works — a real sequence, so numbered */}
-      <section className="border-y border-line bg-white">
-        <div className="page py-16 sm:py-20">
-          <h2 className="section-title">Getting started takes a few minutes</h2>
-          <ol className="mt-10 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              { t: "Create your account", b: "Sign up with email or Google. It's free." },
-              { t: "Pick a course", b: "See subjects, notes, practice sets and mock tests before you buy." },
-              { t: "Pay securely", b: "Checkout through Razorpay. The course unlocks immediately." },
-              { t: "Start studying", b: "Open it from My Courses any time. Come back for more courses later." },
-            ].map((s, i) => (
-              <li key={s.t} className="relative">
-                <span className="font-display text-4xl font-extrabold text-marigold-400">{i + 1}</span>
-                <h3 className="mt-2 text-base font-bold">{s.t}</h3>
-                <p className="mt-1 text-[15px] leading-relaxed text-ink/65">{s.b}</p>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </section>
+      <WhySection />
+      <TrustStrip />
 
       {/* Final CTA */}
-      <section className="page py-16 sm:py-20">
-        <div className="flex flex-col items-start justify-between gap-6 rounded-3xl bg-marigold-50 p-8 sm:p-12 md:flex-row md:items-center">
+      <section className="page pb-14 sm:pb-20">
+        <div className="flex flex-col items-start justify-between gap-6 rounded-3xl bg-marigold-50 p-8 ring-1 ring-marigold-100 sm:p-12 md:flex-row md:items-center">
           <div>
             <h2 className="font-display text-2xl font-bold sm:text-3xl">Your exam date isn't moving. Start today.</h2>
             <p className="mt-2 text-ink/70">Browse the courses and see exactly what's inside each one.</p>
@@ -158,86 +103,182 @@ export function Home() {
   );
 }
 
-function Hero({ loggedIn }: { loggedIn: boolean }) {
+function Hero({ loggedIn, courses }: { loggedIn: boolean; courses: CatalogCourse[] }) {
+  const navigate = useNavigate();
+  const [q, setQ] = useState("");
+
+  function onSearch(e: FormEvent) {
+    e.preventDefault();
+    const t = q.trim();
+    navigate(t ? `/courses?q=${encodeURIComponent(t)}` : "/courses");
+  }
+
+  // Quick filters come from the real courses, so they never lead to an empty page.
+  const chips = courses.slice(0, 5);
+
   return (
-    <section className="border-b border-line bg-white">
-      <div className="page grid items-center gap-12 py-12 sm:py-16 lg:grid-cols-[1.1fr_1fr] lg:gap-16 lg:py-20">
+    <section className="hero-navy relative overflow-hidden text-white">
+      <div className="hero-dots" aria-hidden="true" />
+      <div className="page relative grid items-center gap-6 pb-24 pt-10 sm:pt-14 lg:grid-cols-[1.05fr_1fr] lg:gap-4 lg:pb-32 lg:pt-16">
         <div>
-          <h1 className="font-display text-[34px] font-extrabold leading-[1.08] sm:text-5xl lg:text-[56px]">
-            Prepare for your exam with notes, practice and mock tests in one place.
-          </h1>
-          <p className="mt-5 max-w-lg text-lg leading-relaxed text-ink/70">
-            BS Creation courses give you chapter-wise reading material, topic-wise practice questions and timed mock tests, arranged subject by subject.
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-medium text-white/80">
+            <span>Notes</span>
+            <span className="h-3 w-px bg-white/30" aria-hidden="true" />
+            <span>Practice</span>
+            <span className="h-3 w-px bg-white/30" aria-hidden="true" />
+            <span>Mock tests</span>
           </p>
+          <h1 className="mt-4 font-display text-[40px] font-extrabold leading-[1.04] text-white sm:text-5xl lg:text-[60px]">
+            Your Learning Journey <span className="block text-marigold-400">Starts Here</span>
+          </h1>
+          <p className="mt-5 max-w-lg text-[17px] leading-relaxed text-white/75">
+            Chapter-wise reading material, topic-wise practice questions and timed mock tests, arranged subject by subject. Study on your phone or laptop.
+          </p>
+
+          <form onSubmit={onSearch} role="search" className="mt-7 flex max-w-xl items-center gap-2 rounded-2xl bg-white p-1.5 shadow-deep">
+            <IconSearch width={20} height={20} className="ml-3 shrink-0 text-brand-400" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search courses or subjects…"
+              aria-label="Search courses"
+              className="h-11 min-w-0 flex-1 bg-transparent px-1 text-[15px] text-ink placeholder:text-ink/40 focus:outline-none"
+            />
+            <button type="submit" className="btn-accent !min-h-[44px] !px-4" aria-label="Search">
+              <IconSearch width={18} height={18} />
+            </button>
+          </form>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link to="/courses" className="rounded-full border border-white/25 bg-white/10 px-3.5 py-1.5 text-[13px] font-medium text-white hover:bg-white/20">
+              All courses
+            </Link>
+            {chips.map((c) => (
+              <Link
+                key={c.id}
+                to={`/courses?q=${encodeURIComponent(c.title)}`}
+                className="max-w-[12rem] truncate rounded-full border border-white/25 bg-white/10 px-3.5 py-1.5 text-[13px] font-medium text-white hover:bg-white/20"
+              >
+                {c.title}
+              </Link>
+            ))}
+          </div>
+
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Link to="/courses" className="btn-primary h-12 px-6 text-base">Explore courses</Link>
+            <Link to="/courses" className="btn-accent h-12 px-6 text-base">Explore courses</Link>
             {loggedIn ? (
-              <Link to="/dashboard" className="btn-secondary h-12 px-6 text-base">Go to my dashboard</Link>
+              <Link to="/dashboard" className="btn-glass h-12 px-6 text-base">Go to my dashboard</Link>
             ) : (
-              <>
-                <Link to="/register" className="btn-secondary h-12 px-6 text-base">Create free account</Link>
-                <Link to="/login" className="btn-ghost h-12 px-4 text-base">Log in</Link>
-              </>
+              <Link to="/register" className="btn-glass h-12 px-6 text-base">Create free account</Link>
             )}
           </div>
-          <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-ink/70">
-            {["Study on phone or laptop", "UPI, cards and net banking", "Instant access after payment"].map((t) => (
-              <li key={t} className="inline-flex items-center gap-1.5">
-                <IconCheck width={16} height={16} className="text-brand-500" /> {t}
-              </li>
-            ))}
-          </ul>
         </div>
 
-        <QuestionCard />
+        <HeroScene />
       </div>
     </section>
   );
 }
 
-/** A sample practice question — shows students what studying on BS Creation feels like. */
-function QuestionCard() {
-  const options = ["Oxygen", "Carbon dioxide", "Nitrogen", "Hydrogen"];
-  const correct = 1;
+/** Raised white card that overlaps the hero. Everything listed here exists in every course. */
+function FeatureStrip() {
+  const items = [
+    { icon: IconDoc, title: "Reading material", body: "Chapter-wise PDF notes" },
+    { icon: IconPencil, title: "Practice questions", body: "Topic-wise question sets" },
+    { icon: IconTimer, title: "Mock tests", body: "Timed, exam-style tests" },
+    { icon: IconChart, title: "Progress tracking", body: "Resume where you stopped" },
+    { icon: IconShield, title: "Secure payments", body: "UPI, cards, net banking" },
+  ];
   return (
-    <div className="chalk-grid relative rounded-3xl bg-brand-700 p-4 sm:p-6" aria-label="Sample practice question">
-      <div className="rounded-2xl bg-white p-5 shadow-lift sm:p-6">
-        <div className="flex items-center justify-between text-xs font-semibold text-ink/55">
-          <span>Sample question 14 of 50</span>
-          <span className="inline-flex items-center gap-1 rounded-md bg-marigold-50 px-2 py-1 text-marigold-600">
-            <IconTimer width={14} height={14} /> 32:10 left
-          </span>
-        </div>
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-brand-50">
-          <div className="h-full w-[28%] rounded-full bg-brand-500" />
-        </div>
-        <p className="mt-5 text-[17px] font-semibold leading-snug">
-          Which gas do green plants take in from the air during photosynthesis?
-        </p>
-        <ul className="mt-4 space-y-2">
-          {options.map((o, i) => (
-            <li
-              key={o}
-              className={`flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-[15px] ${
-                i === correct ? "q-correct border-line" : "border-line"
-              }`}
-            >
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-paper text-xs font-bold text-ink/60">
-                {String.fromCharCode(65 + i)}
-              </span>
-              <span className="flex-1">{o}</span>
-              {i === correct && (
-                <span className="q-tick flex h-6 w-6 items-center justify-center rounded-full bg-brand-500 text-white">
-                  <IconCheck width={14} height={14} strokeWidth={2.6} />
+    <div className="page relative z-10 -mt-14 sm:-mt-16">
+      <ul className="grid grid-cols-2 gap-x-4 gap-y-5 rounded-3xl bg-white p-5 shadow-lift ring-1 ring-line sm:grid-cols-3 sm:p-6 lg:grid-cols-5">
+        {items.map(({ icon: Icon, title, body }, i) => (
+          <li key={title} className={`flex items-center gap-3 ${i === 4 ? "col-span-2 sm:col-span-1" : ""}`}>
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600 shadow-[inset_0_-3px_0_rgba(23,58,128,0.12)]">
+              <Icon width={22} height={22} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[14px] font-bold leading-tight text-ink">{title}</span>
+              <span className="mt-0.5 block text-[12px] leading-snug text-ink/55">{body}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function WhySection() {
+  const points = [
+    { icon: IconLayers, title: "Organised by subject", body: "Every course is split into subjects and chapters, so you always know what to study next." },
+    { icon: IconChart, title: "Progress you can see", body: "Mark lessons complete and pick up exactly where you left off from your dashboard." },
+    { icon: IconPhone, title: "Made for your phone", body: "Notes, practice and tests all work on a mobile screen. No app to install." },
+    { icon: IconShield, title: "Secure payments", body: "Pay with UPI, cards or net banking through Razorpay. Access unlocks right after payment." },
+  ];
+  const steps = [
+    { t: "Create your account", b: "Sign up with email or Google. It's free." },
+    { t: "Pick a course", b: "See subjects, notes, practice sets and mock tests before you buy." },
+    { t: "Pay securely", b: "Checkout through Razorpay. The course unlocks immediately." },
+    { t: "Start studying", b: "Open it from My Courses any time. Come back for more later." },
+  ];
+  return (
+    <section className="page grid gap-5 pb-12 sm:pb-16 lg:grid-cols-[1.5fr_1fr]">
+      <div className="hero-navy relative overflow-hidden rounded-3xl p-6 text-white shadow-deep sm:p-9">
+        <div className="hero-dots" aria-hidden="true" />
+        <div className="relative">
+          <h2 className="font-display text-2xl font-bold text-white sm:text-3xl">Why choose BS Creation?</h2>
+          <p className="mt-2 text-white/70">One account for all your preparation.</p>
+          <ul className="mt-7 grid gap-6 sm:grid-cols-2">
+            {points.map(({ icon: Icon, title, body }) => (
+              <li key={title} className="flex gap-3.5">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-marigold-300 ring-1 ring-white/15">
+                  <Icon width={22} height={22} />
                 </span>
-              )}
+                <div>
+                  <h3 className="text-[15px] font-bold text-white">{title}</h3>
+                  <p className="mt-1 text-[14px] leading-relaxed text-white/70">{body}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <Link to="/courses" className="btn-accent mt-8">Explore all courses</Link>
+        </div>
+      </div>
+
+      <div className="rounded-3xl bg-white p-6 shadow-card ring-1 ring-line sm:p-8">
+        <h2 className="font-display text-xl font-bold">Get started in minutes</h2>
+        <ol className="mt-6 space-y-5">
+          {steps.map((s, i) => (
+            <li key={s.t} className="flex gap-4">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-marigold-400 font-display text-base font-extrabold text-ink shadow-[0_3px_0_#B87A00]">
+                {i + 1}
+              </span>
+              <div>
+                <h3 className="text-[15px] font-bold">{s.t}</h3>
+                <p className="mt-0.5 text-[14px] leading-relaxed text-ink/65">{s.b}</p>
+              </div>
             </li>
           ))}
-        </ul>
-        <p className="q-explain mt-4 rounded-xl bg-brand-50 px-3.5 py-3 text-sm leading-relaxed text-brand-800">
-          <strong>Correct.</strong> Plants absorb carbon dioxide and release oxygen during photosynthesis.
-        </p>
+        </ol>
       </div>
-    </div>
+    </section>
+  );
+}
+
+function TrustStrip() {
+  const items = ["Study on phone or laptop", "UPI, cards and net banking", "Instant access after payment", "Earlier courses stay unlocked"];
+  return (
+    <section className="page pb-12 sm:pb-16">
+      <ul className="grid gap-x-6 gap-y-3 rounded-2xl bg-white px-5 py-4 text-[14px] font-medium text-ink/75 shadow-card ring-1 ring-line sm:grid-cols-2 lg:grid-cols-4">
+        {items.map((t) => (
+          <li key={t} className="flex items-center gap-2.5">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+              <IconCheck width={14} height={14} strokeWidth={2.6} />
+            </span>
+            {t}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

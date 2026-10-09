@@ -2,21 +2,38 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 import type { Course } from "../../types";
+import { LoadError } from "../../components/LoadError";
 
 export function AdminCourses() {
   const [courses, setCourses] = useState<Course[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase
+    load();
+  }, []);
+
+  async function load() {
+    const { data, error } = await supabase
       .from("courses")
       .select("*")
       .order("created_at", { ascending: false })
-      .then(({ data }) => setCourses((data as Course[]) ?? []));
-  }, []);
+      .limit(200);
+    if (error) {
+      console.error("AdminCourses: could not load courses:", error);
+      setLoadError(error.message);
+      return;
+    }
+    setLoadError(null);
+    setCourses((data as Course[]) ?? []);
+  }
 
   async function togglePublish(course: Course) {
     const next = course.status === "published" ? "draft" : "published";
-    await supabase.from("courses").update({ status: next }).eq("id", course.id);
+    const { error } = await supabase.from("courses").update({ status: next }).eq("id", course.id);
+    if (error) {
+      alert(`Could not change the status: ${error.message}`);
+      return;
+    }
     setCourses((prev) => prev.map((c) => (c.id === course.id ? { ...c, status: next } : c)));
   }
 
@@ -28,6 +45,12 @@ export function AdminCourses() {
           + New Course
         </Link>
       </div>
+
+      {loadError && (
+        <div className="mb-4">
+          <LoadError message={`Couldn't load courses: ${loadError}`} onRetry={load} />
+        </div>
+      )}
 
       <div className="overflow-x-auto rounded-xl border border-slate-200">
         <table className="w-full text-left text-sm">
@@ -55,7 +78,7 @@ export function AdminCourses() {
                 </td>
               </tr>
             ))}
-            {courses.length === 0 && (
+            {courses.length === 0 && !loadError && (
               <tr>
                 <td colSpan={4} className="px-4 py-6 text-center text-slate-400">No courses yet</td>
               </tr>

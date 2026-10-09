@@ -17,11 +17,14 @@ export function Logo({
   tone = "light",
   to = "/",
   showWordmark = BRAND.showWordmark,
+  tagline,
 }: {
   size?: Size;
   tone?: "light" | "dark";
   to?: string | null;
   showWordmark?: boolean;
+  /** Small line under the name (used in the site header). */
+  tagline?: string;
 }) {
   const [failed, setFailed] = useState(false);
   const src = tone === "dark" && BRAND.logoOnDark ? BRAND.logoOnDark : BRAND.logo;
@@ -49,12 +52,19 @@ export function Logo({
     <span className="inline-flex items-center gap-2.5">
       {mark}
       {showWordmark && (
-        <span
-          className={`${TEXT[size]} font-display font-bold tracking-tight ${
-            tone === "dark" ? "text-white" : "text-ink"
-          }`}
-        >
-          {BRAND.name}
+        <span className="flex flex-col leading-tight">
+          <span
+            className={`${TEXT[size]} font-display font-bold tracking-tight ${
+              tone === "dark" ? "text-white" : "text-ink"
+            }`}
+          >
+            {BRAND.name}
+          </span>
+          {tagline && (
+            <span className={`hidden text-[11px] font-medium sm:block ${tone === "dark" ? "text-white/60" : "text-ink/50"}`}>
+              {tagline}
+            </span>
+          )}
         </span>
       )}
     </span>

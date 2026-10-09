@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../hooks/useAuth";
 import { useCheckout } from "../hooks/useCheckout";
 import { CourseCard } from "../components/CourseCard";
+import { LoadError } from "../components/LoadError";
 import { CourseThumb } from "../components/CourseThumb";
 import { Logo } from "../components/Logo";
 import { computeStats, fetchOwnedCourseIds, fetchPublishedCourses, type CatalogCourse } from "../lib/catalog";
@@ -19,6 +20,8 @@ export function CourseDetail() {
 
   const [course, setCourse] = useState<Course | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [modules, setModules] = useState<(Module & { lessons: Lesson[] })[]>([]);
   const [owned, setOwned] = useState(false);
   const [others, setOthers] = useState<CatalogCourse[]>([]);
@@ -29,62 +32,96 @@ export function CourseDetail() {
   const buying = !!course && buyingId === course.id;
 
   useEffect(() => {
+    let active = true;
     (async () => {
       setNotFound(false);
+      setLoadError(false);
       setCourse(null);
       setOwned(false);
-      const { data: courseData } = await supabase
-        .from("courses")
-        .select("*")
-        .eq("slug", courseSlug)
-        .eq("status", "published")
-        .single();
-      if (!courseData) {
-        setNotFound(true);
-        return;
-      }
-      setCourse(courseData as Course);
+      try {
+        const { data: courseData, error: courseError } = await supabase
+          .from("courses")
+          .select("*")
+          .eq("slug", courseSlug)
+          .eq("status", "published")
+          .single();
+        if (!active) return;
+        // PGRST116 = "no rows" → the course really doesn't exist. Anything else is a failed request.
+        if (courseError && courseError.code !== "PGRST116") throw courseError;
+        if (!courseData) {
+          setNotFound(true);
+          return;
+        }
+        setCourse(courseData as Course);
 
-      const { data: moduleData } = await supabase
-        .from("modules")
-        .select("*, lessons(*)")
-        .eq("course_id", courseData.id)
-        .order("position");
-      const mods = ((moduleData as any) ?? []) as (Module & { lessons: Lesson[] })[];
-      setModules(mods);
-      if (mods[0]) setOpenModules(new Set([mods[0].id]));
-
-      if (user) {
-        const { data: enrollment } = await supabase
-          .from("enrollments")
-          .select("id")
-          .eq("user_id", user.id)
+        const { data: moduleData, error: moduleError } = await supabase
+          .from("modules")
+          .select("*, lessons(*)")
           .eq("course_id", courseData.id)
-          .eq("status", "active")
-          .maybeSingle();
-        setOwned(!!enrollment);
-      } else {
-        setOwned(false);
-      }
+          .order("position");
+        if (moduleError) throw moduleError;
+        const mods = ((moduleData as any) ?? []) as (Module & { lessons: Lesson[] })[];
+        setModules(mods);
+        if (mods[0]) setOpenModules(new Set([mods[0].id]));
 
-      // Other courses for "Explore more courses"
-      const [catalog, ownedSet] = await Promise.all([
-        fetchPublishedCourses(),
-        user ? fetchOwnedCourseIds(user.id) : Promise.resolve(new Set<string>()),
-      ]);
-      const rest = catalog.filter((c) => c.id !== courseData.id);
-      rest.sort((a, b) => Number(ownedSet.has(a.id)) - Number(ownedSet.has(b.id))); // not-owned first
-      setOthers(rest.slice(0, 3));
-      setOtherOwned(ownedSet);
+        if (user) {
+          const { data: enrollment, error: enrollError } = await supabase
+            .from("enrollments")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("course_id", courseData.id)
+            .eq("status", "active")
+            .maybeSingle();
+          // Never show "Buy" to someone who may already own this course just because a request failed.
+          if (enrollError) throw enrollError;
+          if (!active) return;
+          setOwned(!!enrollment);
+        } else {
+          setOwned(false);
+        }
+
+        if (!active) return;
+        // Other courses for "Explore more courses" — optional, so a failure here must not break the page.
+        try {
+          const [catalog, ownedSet] = await Promise.all([
+            fetchPublishedCourses(),
+            user ? fetchOwnedCourseIds(user.id) : Promise.resolve(new Set<string>()),
+          ]);
+          if (!active) return;
+          const rest = catalog.filter((c) => c.id !== courseData.id);
+          rest.sort((a, b) => Number(ownedSet.has(a.id)) - Number(ownedSet.has(b.id))); // not-owned first
+          setOthers(rest.slice(0, 3));
+          setOtherOwned(ownedSet);
+        } catch (err) {
+          console.error("CourseDetail: could not load other courses:", err);
+        }
+      } catch (err) {
+        console.error("CourseDetail: could not load the course:", err);
+        if (active) setLoadError(true);
+      }
     })();
-  }, [courseSlug, user?.id]);
+    return () => {
+      active = false;
+    };
+  }, [courseSlug, user?.id, attempt]);
 
   // Reserve space at the bottom of the page for the mobile "Buy now" bar
-  const showBuyBar = !!course && !owned;
+  const showBuyBar = !!course && !owned && !loadError;
   useEffect(() => {
     document.body.classList.toggle("has-buybar", showBuyBar);
     return () => document.body.classList.remove("has-buybar");
   }, [showBuyBar]);
+
+  if (loadError) {
+    return (
+      <div className="page py-16">
+        <LoadError
+          message="We couldn't load this course right now. Please check your internet connection and try again."
+          onRetry={() => setAttempt((n) => n + 1)}
+        />
+      </div>
+    );
+  }
 
   if (notFound) {
     return (

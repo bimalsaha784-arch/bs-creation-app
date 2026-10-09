@@ -21,21 +21,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
+    let active = true;
+
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (active) setSession(data.session);
+      } catch (err) {
+        // If this fails, the app must still start (as logged-out) instead of
+        // showing a spinner forever.
+        console.error("Could not read the login session:", err);
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
     });
 
-    return () => listener.subscription.unsubscribe();
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
   async function loadProfile(userId: string) {
-    const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
-    setProfile(data as Profile);
+    try {
+      const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
+      if (error) throw error;
+      setProfile(data as Profile);
+    } catch (err) {
+      console.error("Could not load the profile:", err);
+      setProfile(null);
+    }
   }
 
   useEffect(() => {

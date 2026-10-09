@@ -4,40 +4,41 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Blackboard green — the BS Creation brand colour.
-        // (Key names kept identical to the old palette so admin pages keep working.)
+        // Royal navy — the BS Creation brand colour.
+        // (Key names kept identical to the old palette so every page picks the new colour up.)
         brand: {
-          50: "#EEF6F1",
-          100: "#D6EADF",
-          200: "#B0D4C0",
-          300: "#7FB79A",
-          400: "#4F9877",
-          500: "#2F8563",
-          600: "#256B4F",
-          700: "#1F4D3A",
-          800: "#183D2E",
-          900: "#122E23",
+          50: "#EEF3FC",
+          100: "#DCE6F8",
+          200: "#B8CCF1",
+          300: "#8CAAE6",
+          400: "#5C84D6",
+          500: "#2F5FC4",
+          600: "#1F489F",
+          700: "#173A80",
+          800: "#102C63",
+          900: "#0A1F4A",
         },
-        // Marigold — the single accent colour.
+        // Sunshine yellow — the single accent colour.
         marigold: {
-          50: "#FFF7E3",
-          100: "#FDEBC0",
-          300: "#F7C75A",
-          400: "#F2A516",
-          500: "#D98C06",
-          600: "#B26F03",
+          50: "#FFF8E1",
+          100: "#FFEFB8",
+          300: "#FFD25A",
+          400: "#FDB913",
+          500: "#E39F00",
+          600: "#B87A00",
         },
-        ink: "#15241D",
-        paper: "#FAFAF7",
-        line: "#E3E7E1",
+        ink: "#0E1A38",
+        paper: "#F3F6FC",
+        line: "#E0E7F3",
       },
       fontFamily: {
         sans: ['"Hanken Grotesk"', "ui-sans-serif", "system-ui", "sans-serif"],
         display: ['"Bricolage Grotesque"', '"Hanken Grotesk"', "ui-sans-serif", "system-ui", "sans-serif"],
       },
       boxShadow: {
-        card: "0 1px 2px rgba(21,36,29,0.05), 0 4px 16px -6px rgba(21,36,29,0.10)",
-        lift: "0 2px 4px rgba(21,36,29,0.06), 0 16px 32px -12px rgba(21,36,29,0.22)",
+        card: "0 1px 2px rgba(10,31,74,0.06), 0 6px 20px -8px rgba(10,31,74,0.14)",
+        lift: "0 2px 4px rgba(10,31,74,0.08), 0 22px 40px -14px rgba(10,31,74,0.30)",
+        deep: "0 40px 70px -28px rgba(5,15,45,0.65)",
       },
     },
   },

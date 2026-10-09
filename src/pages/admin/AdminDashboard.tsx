@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
+import { LoadError } from "../../components/LoadError";
 
 interface Stats {
   totalStudents: number;
@@ -15,43 +16,50 @@ interface Stats {
 
 export function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    let active = true;
     (async () => {
-      const [
-        students,
-        courses,
-        published,
-        orders,
-        successPayments,
-        failedPayments,
-        enrollments,
-        revenueRows,
-      ] = await Promise.all([
-        supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "student"),
-        supabase.from("courses").select("id", { count: "exact", head: true }),
-        supabase.from("courses").select("id", { count: "exact", head: true }).eq("status", "published"),
-        supabase.from("orders").select("id", { count: "exact", head: true }),
-        supabase.from("payments").select("id", { count: "exact", head: true }).eq("status", "captured"),
-        supabase.from("payments").select("id", { count: "exact", head: true }).eq("status", "failed"),
-        supabase.from("enrollments").select("id", { count: "exact", head: true }).eq("status", "active"),
-        supabase.from("payments").select("amount").eq("status", "captured"),
-      ]);
+      setLoadError(false);
+      try {
+        const results = await Promise.all([
+          supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "student"),
+          supabase.from("courses").select("id", { count: "exact", head: true }),
+          supabase.from("courses").select("id", { count: "exact", head: true }).eq("status", "published"),
+          supabase.from("orders").select("id", { count: "exact", head: true }),
+          supabase.from("payments").select("id", { count: "exact", head: true }).eq("status", "captured"),
+          supabase.from("payments").select("id", { count: "exact", head: true }).eq("status", "failed"),
+          supabase.from("enrollments").select("id", { count: "exact", head: true }).eq("status", "active"),
+          supabase.from("payments").select("amount").eq("status", "captured"),
+        ]);
+        const failed = results.find((r) => r.error);
+        if (failed?.error) throw failed.error;
+        const [students, courses, published, orders, successPayments, failedPayments, enrollments, revenueRows] = results;
 
-      const revenue = (revenueRows.data ?? []).reduce((sum, r: any) => sum + Number(r.amount), 0);
+        const revenue = ((revenueRows.data ?? []) as any[]).reduce((sum, r) => sum + Number(r.amount), 0);
 
-      setStats({
-        totalStudents: students.count ?? 0,
-        totalCourses: courses.count ?? 0,
-        publishedCourses: published.count ?? 0,
-        totalOrders: orders.count ?? 0,
-        successfulPayments: successPayments.count ?? 0,
-        failedPayments: failedPayments.count ?? 0,
-        activeEnrollments: enrollments.count ?? 0,
-        revenue,
-      });
+        if (!active) return;
+        setStats({
+          totalStudents: students.count ?? 0,
+          totalCourses: courses.count ?? 0,
+          publishedCourses: published.count ?? 0,
+          totalOrders: orders.count ?? 0,
+          successfulPayments: successPayments.count ?? 0,
+          failedPayments: failedPayments.count ?? 0,
+          activeEnrollments: enrollments.count ?? 0,
+          revenue,
+        });
+      } catch (err) {
+        console.error("AdminDashboard: could not load stats:", err);
+        if (active) setLoadError(true);
+      }
     })();
-  }, []);
+    return () => {
+      active = false;
+    };
+  }, [attempt]);
 
   const cards = stats
     ? [
@@ -79,6 +87,9 @@ export function AdminDashboard() {
           </Link>
         </div>
       </div>
+
+      {loadError && <LoadError message="Couldn't load the dashboard numbers." onRetry={() => setAttempt((n) => n + 1)} />}
+      {!stats && !loadError && <p className="text-slate-500">Loading…</p>}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {cards.map((c) => (

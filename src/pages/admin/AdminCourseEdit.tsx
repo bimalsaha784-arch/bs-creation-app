@@ -2,6 +2,11 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 import type { Course, Module, Lesson } from "../../types";
+import { LoadError } from "../../components/LoadError";
+
+const LESSON_TYPES = ["pdf", "html_app", "video", "text", "quiz"] as const;
+// Supabase free plan: a single file can be at most 50 MB.
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 export function AdminCourseEdit() {
   const { id } = useParams();
@@ -9,6 +14,7 @@ export function AdminCourseEdit() {
   const [modules, setModules] = useState<(Module & { lessons: Lesson[] })[]>([]);
   const [newModuleTitle, setNewModuleTitle] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [priceInput, setPriceInput] = useState("");
   const [discountInput, setDiscountInput] = useState("");
@@ -23,7 +29,13 @@ export function AdminCourseEdit() {
   const [detailsSaved, setDetailsSaved] = useState(false);
 
   async function refresh() {
-    const { data: courseData } = await supabase.from("courses").select("*").eq("id", id).single();
+    const { data: courseData, error: courseError } = await supabase.from("courses").select("*").eq("id", id).single();
+    if (courseError || !courseData) {
+      console.error("AdminCourseEdit: could not load the course:", courseError);
+      setLoadError(courseError?.message ?? "Course not found");
+      return;
+    }
+    setLoadError(null);
     setCourse(courseData as Course);
     if (courseData) {
       setPriceInput(String(courseData.price ?? ""));
@@ -39,11 +51,15 @@ export function AdminCourseEdit() {
       });
     }
 
-    const { data: moduleData } = await supabase
+    const { data: moduleData, error: moduleError } = await supabase
       .from("modules")
       .select("*, lessons(*)")
       .eq("course_id", id)
       .order("position");
+    if (moduleError) {
+      alert(`Could not load the modules: ${moduleError.message}`);
+      return;
+    }
     setModules((moduleData as any) ?? []);
   }
 
@@ -53,11 +69,19 @@ export function AdminCourseEdit() {
 
   async function savePrice() {
     if (!course) return;
-    setSavingPrice(true);
-    setPriceSaved(false);
-
     const newPrice = Number(priceInput);
     const newDiscount = discountInput.trim() === "" ? null : Number(discountInput);
+    // An empty price box used to be saved as 0 (a free course) — catch that here.
+    if (priceInput.trim() === "" || !Number.isFinite(newPrice) || newPrice < 0) {
+      alert("Please enter a valid price (0 or more).");
+      return;
+    }
+    if (newDiscount !== null && (!Number.isFinite(newDiscount) || newDiscount < 0 || newDiscount > newPrice)) {
+      alert("Discount price must be a number between 0 and the price.");
+      return;
+    }
+    setSavingPrice(true);
+    setPriceSaved(false);
 
     const { error } = await supabase
       .from("courses")
@@ -103,11 +127,15 @@ export function AdminCourseEdit() {
 
   async function addModule() {
     if (!newModuleTitle.trim() || !course) return;
-    await supabase.from("modules").insert({
+    const { error } = await supabase.from("modules").insert({
       course_id: course.id,
       title: newModuleTitle,
       position: modules.length,
     });
+    if (error) {
+      alert(`Could not add the module: ${error.message}`);
+      return;
+    }
     setNewModuleTitle("");
     refresh();
   }
@@ -117,42 +145,71 @@ export function AdminCourseEdit() {
       `Delete module "${moduleTitle}" and all its lessons? This cannot be undone.`
     );
     if (!confirmed) return;
-    await supabase.from("modules").delete().eq("id", moduleId);
+    const { error } = await supabase.from("modules").delete().eq("id", moduleId);
+    if (error) {
+      alert(`Could not delete the module: ${error.message}`);
+      return;
+    }
     refresh();
   }
 
   async function addLesson(moduleId: string) {
     const title = window.prompt("Lesson title?");
     if (!title) return;
-    const contentType = window.prompt("Content type: pdf, html_app, video, or text?", "pdf") as any;
-    await supabase.from("lessons").insert({
+    const typed = (window.prompt("Content type: pdf, html_app, video, or text?", "pdf") ?? "").trim().toLowerCase();
+    if (!typed) return; // cancelled
+    if (!(LESSON_TYPES as readonly string[]).includes(typed)) {
+      alert(`"${typed}" is not a valid type. Use one of: ${LESSON_TYPES.join(", ")}.`);
+      return;
+    }
+    const { error } = await supabase.from("lessons").insert({
       module_id: moduleId,
       title,
-      content_type: contentType || "text",
+      content_type: typed as Lesson["content_type"],
       position: modules.find((m) => m.id === moduleId)?.lessons.length ?? 0,
       status: "published",
     });
+    if (error) {
+      alert(`Could not add the lesson: ${error.message}`);
+      return;
+    }
     refresh();
   }
 
   async function deleteLesson(lessonId: string, lessonTitle: string) {
     const confirmed = window.confirm(`Delete lesson "${lessonTitle}"? This cannot be undone.`);
     if (!confirmed) return;
-    await supabase.from("lessons").delete().eq("id", lessonId);
+    const { error } = await supabase.from("lessons").delete().eq("id", lessonId);
+    if (error) {
+      alert(`Could not delete the lesson: ${error.message}`);
+      return;
+    }
     refresh();
   }
 
   async function uploadThumbnail(file: File) {
     if (!course) return;
     setUploading(true);
-    const path = `${course.id}/thumbnail-${Date.now()}.${file.name.split(".").pop()}`;
-    const { error } = await supabase.storage.from("course-thumbnails").upload(path, file, { upsert: true });
-    if (!error) {
+    try {
+      const path = `${course.id}/thumbnail-${Date.now()}.${file.name.split(".").pop()}`;
+      const { error } = await supabase.storage.from("course-thumbnails").upload(path, file, { upsert: true });
+      if (error) {
+        alert(`Thumbnail upload failed: ${error.message}`);
+        return;
+      }
       const { data } = supabase.storage.from("course-thumbnails").getPublicUrl(path);
-      await supabase.from("courses").update({ thumbnail_url: data.publicUrl }).eq("id", course.id);
+      const { error: saveError } = await supabase
+        .from("courses")
+        .update({ thumbnail_url: data.publicUrl })
+        .eq("id", course.id);
+      if (saveError) {
+        alert(`Thumbnail uploaded but could not be saved: ${saveError.message}`);
+        return;
+      }
       refresh();
+    } finally {
+      setUploading(false);
     }
-    setUploading(false);
   }
 
   async function uploadLessonFile(lessonId: string, file: File) {
@@ -162,6 +219,10 @@ export function AdminCourseEdit() {
     // storage policy, which checks is_admin() server-side.
     // contentType is force-set to text/html for html_app lessons because some
     // mobile browsers report the wrong (or empty) MIME type for .html files.
+    if (file.size > MAX_UPLOAD_BYTES) {
+      alert("This file is larger than 50 MB, which is the upload limit on the current Supabase plan.");
+      return;
+    }
     const path = `${course.id}/${lessonId}/${file.name}`;
     const lessonType = modules.flatMap((m) => m.lessons ?? []).find((l) => l.id === lessonId)?.content_type;
     const isHtml = lessonType === "html_app" || /\.html?$/i.test(file.name);
@@ -171,22 +232,42 @@ export function AdminCourseEdit() {
       // display as garbled text. Only HTML apps need the forced type.
       contentType: isHtml ? "text/html" : file.type || undefined,
     });
-    if (!error) {
-      await supabase.from("lessons").update({ content_reference: path }).eq("id", lessonId);
-      refresh();
-    } else {
-      alert(error.message);
+    if (error) {
+      const big = file.size > 20 * 1024 * 1024;
+      alert(
+        `Upload failed: ${error.message}` +
+          (big ? "\n\nLarge files can time out from this page. Upload the file in the Supabase Storage dashboard instead." : "")
+      );
+      return;
     }
+    const { error: linkError } = await supabase.from("lessons").update({ content_reference: path }).eq("id", lessonId);
+    if (linkError) {
+      alert(`File uploaded but could not be linked to the lesson: ${linkError.message}`);
+      return;
+    }
+    refresh();
   }
 
   async function togglePublish() {
     if (!course) return;
     const next = course.status === "published" ? "draft" : "published";
-    await supabase.from("courses").update({ status: next }).eq("id", course.id);
+    const { error } = await supabase.from("courses").update({ status: next }).eq("id", course.id);
+    if (error) {
+      alert(`Could not change the status: ${error.message}`);
+      return;
+    }
     refresh();
   }
 
-  if (!course) return <div className="px-4 py-12 text-slate-500">Loading…</div>;
+  if (!course) {
+    return loadError ? (
+      <div className="mx-auto max-w-3xl px-4 py-12">
+        <LoadError message={`Couldn't load this course: ${loadError}`} onRetry={refresh} />
+      </div>
+    ) : (
+      <div className="px-4 py-12 text-slate-500">Loading…</div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-12">

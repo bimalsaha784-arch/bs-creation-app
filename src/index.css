@@ -17,8 +17,20 @@
     @apply inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold
            transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60;
   }
-  .btn-primary   { @apply btn bg-brand-700 text-white hover:bg-brand-800; }
-  .btn-accent    { @apply btn bg-marigold-400 text-ink hover:bg-marigold-300; }
+  /* Raised "3D" buttons: a solid ledge underneath that presses down on tap. */
+  .btn-primary {
+    @apply btn bg-brand-700 text-white hover:bg-brand-600;
+    box-shadow: 0 4px 0 0 #0A1F4A, 0 12px 20px -10px rgba(10, 31, 74, 0.6);
+    transition-property: background-color, transform, box-shadow;
+  }
+  .btn-primary:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 0 #0A1F4A, 0 4px 8px -4px rgba(10, 31, 74, 0.5); }
+  .btn-accent {
+    @apply btn bg-marigold-400 text-ink hover:bg-marigold-300;
+    box-shadow: 0 4px 0 0 #B87A00, 0 12px 20px -10px rgba(184, 122, 0, 0.6);
+    transition-property: background-color, transform, box-shadow;
+  }
+  .btn-accent:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 0 #B87A00, 0 4px 8px -4px rgba(184, 122, 0, 0.5); }
+  .btn-glass { @apply btn border border-white/30 bg-white/10 text-white backdrop-blur hover:bg-white/20; }
   .btn-secondary { @apply btn border border-line bg-white text-ink hover:border-brand-300 hover:bg-brand-50; }
   .btn-ghost     { @apply btn text-ink/80 hover:bg-brand-50 hover:text-ink; }
   .btn-sm        { @apply min-h-[38px] px-3.5 text-[13px]; }
@@ -34,7 +46,7 @@
 
   .section-title { @apply font-display text-2xl font-bold sm:text-[28px]; }
 
-  /* Chalk-grid texture used on green panels and course thumbnails without an image */
+  /* Chalk-grid texture used on navy panels and course thumbnails without an image */
   .chalk-grid {
     background-image:
       linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px),
@@ -50,8 +62,8 @@
 
 /* Hero question card — the one orchestrated animation on the site */
 @keyframes answer-pick {
-  0%   { background-color: #fff; border-color: #E3E7E1; }
-  100% { background-color: #EEF6F1; border-color: #2F8563; }
+  0%   { background-color: #fff; border-color: #E0E7F3; }
+  100% { background-color: #EEF3FC; border-color: #2F5FC4; }
 }
 @keyframes tick-in {
   0% { opacity: 0; transform: scale(0.4); }
@@ -72,4 +84,110 @@
     animation-delay: 0ms !important;
     transition-duration: 1ms !important;
   }
+}
+
+
+/* ======================================================================
+   3D look
+   ====================================================================== */
+
+/* Navy hero / feature panels */
+.hero-navy {
+  background:
+    radial-gradient(900px 420px at 88% 8%, rgba(92, 132, 214, 0.38), transparent 62%),
+    radial-gradient(700px 380px at 0% 100%, rgba(253, 185, 19, 0.10), transparent 60%),
+    linear-gradient(135deg, #0A1F4A 0%, #12306F 55%, #173A80 100%);
+}
+.hero-dots {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.10) 1px, transparent 1.4px);
+  background-size: 26px 26px;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 85%);
+  mask-image: linear-gradient(180deg, #000 0%, transparent 85%);
+  pointer-events: none;
+}
+
+/* Cards that follow the mouse in 3D (see useTilt) */
+.tilt-card {
+  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition: transform 0.18s ease-out, box-shadow 0.2s ease-out;
+  will-change: transform;
+}
+
+/* Hero scene: a stack of 3D books with floating cards in front */
+.scene3d { perspective: 1500px; }
+.scene-scale { transform-style: preserve-3d; transform: scale(var(--sc, 1)); }
+.scene-stage {
+  position: absolute;
+  left: var(--sx, 58%);
+  top: var(--sy, 56%);
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transform: rotateX(calc(-24deg + var(--rx, 0deg))) rotateY(calc(-34deg + var(--ry, 0deg)));
+  transition: transform 0.25s ease-out;
+}
+.book3d {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--w);
+  height: var(--h);
+  margin-left: calc(var(--w) / -2);
+  margin-top: calc(var(--h) / -2);
+  transform-style: preserve-3d;
+  transform: translate3d(0, var(--y, 0px), 0) rotateY(var(--rot, 0deg));
+}
+.book3d .bf { position: absolute; display: block; backface-visibility: hidden; }
+.book3d .f-front,
+.book3d .f-back { width: var(--w); height: var(--h); }
+.book3d .f-front { transform: translateZ(calc(var(--d) / 2)); }
+.book3d .f-back { transform: rotateY(180deg) translateZ(calc(var(--d) / 2)); }
+.book3d .f-left,
+.book3d .f-right { width: var(--d); height: var(--h); left: calc((var(--w) - var(--d)) / 2); }
+.book3d .f-right { transform: rotateY(90deg) translateZ(calc(var(--w) / 2)); }
+.book3d .f-left { transform: rotateY(-90deg) translateZ(calc(var(--w) / 2)); }
+.book3d .f-top,
+.book3d .f-bottom { width: var(--w); height: var(--d); top: calc((var(--h) - var(--d)) / 2); }
+.book3d .f-top { transform: rotateX(90deg) translateZ(calc(var(--h) / 2)); }
+.book3d .f-bottom { transform: rotateX(-90deg) translateZ(calc(var(--h) / 2)); }
+.book3d .pages {
+  background: repeating-linear-gradient(0deg, #FBF7EA 0 3px, #E4DCC6 3px 4px);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.12);
+}
+.book3d .spine { background: var(--cover); filter: brightness(0.82); }
+.book3d .cover {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 45%),
+    var(--cover);
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.14);
+}
+.scene-shadow {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 330px;
+  height: 330px;
+  margin: -165px 0 0 -165px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(3, 10, 35, 0.55), transparent);
+  transform: translate3d(0, 120px, 0) rotateX(90deg);
+}
+
+/* Floating cards / chips over the scene */
+.float-card {
+  transform: perspective(900px) rotateY(-10deg) rotateX(3deg);
+  box-shadow: 0 30px 50px -20px rgba(3, 10, 35, 0.7);
+  animation: float-y 6s ease-in-out infinite;
+}
+.float-chip { animation: float-y 5s ease-in-out infinite; animation-delay: var(--delay, 0s); }
+@keyframes float-y {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .float-card, .float-chip { animation: none; }
+  .tilt-card, .scene-stage { transition: none; }
 }

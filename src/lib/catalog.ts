@@ -73,16 +73,20 @@ export async function fetchPublishedCourses(limit?: number): Promise<CatalogCour
   // catalogue never disappears if the nested query is ever rejected.
   let q2 = supabase.from("courses").select("*").eq("status", "published").order("created_at", { ascending: false });
   if (limit) q2 = q2.limit(limit);
-  const { data: plain } = await q2;
+  const { data: plain, error: plainError } = await q2;
+  // Both queries failed (network / Supabase down): say so, instead of pretending there are no courses.
+  if (plainError) throw plainError;
   return ((plain as Course[]) ?? []).map((c) => ({ ...c, stats: EMPTY_STATS }));
 }
 
 /** IDs of every course this user has active access to (unchanged enrollment logic). */
 export async function fetchOwnedCourseIds(userId: string): Promise<Set<string>> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("enrollments")
     .select("course_id")
     .eq("user_id", userId)
     .eq("status", "active");
+  // A failed request must not look like "owns nothing" (that would show Buy buttons on owned courses).
+  if (error) throw error;
   return new Set((data ?? []).map((e: any) => e.course_id as string));
 }

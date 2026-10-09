@@ -3,12 +3,15 @@ import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../hooks/useAuth";
 import { formatPrice } from "../lib/format";
+import { LoadError } from "../components/LoadError";
 
 export function Profile() {
   const { user, profile, signOut, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const [payments, setPayments] = useState<any[]>([]);
   const [loadingPayments, setLoadingPayments] = useState(true);
+  const [paymentsError, setPaymentsError] = useState(false);
+  const [paymentsAttempt, setPaymentsAttempt] = useState(0);
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
@@ -21,17 +24,31 @@ export function Profile() {
 
   useEffect(() => {
     if (!user) return;
-    // Same payment history query the dashboard used before.
-    supabase
-      .from("payments")
-      .select("id, amount, currency, status, created_at, courses(title)")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .then(({ data }) => {
-        setPayments(data ?? []);
-        setLoadingPayments(false);
-      });
-  }, [user?.id]);
+    let active = true;
+    (async () => {
+      setLoadingPayments(true);
+      setPaymentsError(false);
+      try {
+        // Same payment history query the dashboard used before (newest 100 only).
+        const { data, error } = await supabase
+          .from("payments")
+          .select("id, amount, currency, status, created_at, courses(title)")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(100);
+        if (error) throw error;
+        if (active) setPayments(data ?? []);
+      } catch (err) {
+        console.error("Profile: could not load payments:", err);
+        if (active) setPaymentsError(true);
+      } finally {
+        if (active) setLoadingPayments(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [user?.id, paymentsAttempt]);
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -90,6 +107,10 @@ export function Profile() {
         <h2 className="text-lg font-bold">Payment history</h2>
         {loadingPayments ? (
           <div className="mt-4 h-24 animate-pulse rounded-2xl bg-brand-50" />
+        ) : paymentsError ? (
+          <div className="mt-4">
+            <LoadError message="We couldn't load your payment history." onRetry={() => setPaymentsAttempt((n) => n + 1)} />
+          </div>
         ) : payments.length === 0 ? (
           <div className="mt-4 rounded-2xl border border-dashed border-line bg-white p-6 text-center text-ink/60">
             No payments yet. <Link to="/courses" className="font-semibold text-brand-700">Browse courses</Link>

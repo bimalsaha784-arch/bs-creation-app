@@ -1,0 +1,31 @@
+name: Build check
+
+# Runs on every push and pull request. It builds the site exactly like Netlify
+# does (type-check + build), so a broken change shows a red cross on GitHub
+# BEFORE you spend Netlify deploy credits on it. It uses dummy keys: no real
+# secret is needed or stored here.
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+      - name: Type-check and build
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_ANON_KEY: ci-placeholder
+          VITE_RAZORPAY_KEY_ID: ci-placeholder
+          VITE_SITE_URL: http://localhost:5173

@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./hooks/useAuth";
 import { Layout } from "./components/Layout";
 import { ProtectedRoute, AdminRoute } from "./components/RouteGuards";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 import { Home } from "./pages/Home";
 import { Courses } from "./pages/Courses";
@@ -19,6 +20,7 @@ import { AdminCourseEdit } from "./pages/admin/AdminCourseEdit";
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <AuthProvider>
       <BrowserRouter>
         <Routes>
@@ -50,5 +52,6 @@ export default function App() {
         </Routes>
       </BrowserRouter>
     </AuthProvider>
+    </ErrorBoundary>
   );
 }

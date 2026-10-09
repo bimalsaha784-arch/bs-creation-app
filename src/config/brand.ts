@@ -24,6 +24,9 @@ export const BRAND = {
   name: "BS Creation",
   tagline: "Notes, practice and mock tests for serious exam prep.",
 
+  /** Short line shown under the logo in the header. */
+  shortTagline: "Learn Today, Build Tomorrow.",
+
   /** Main logo — square images look best (recommended 256×256 PNG or SVG). */
   logo: "/assets/logo.png",
 
@@ -36,5 +39,5 @@ export const BRAND = {
   supportEmail: "support@bscreation.example",
 
   /** Colour used inside the Razorpay checkout popup. */
-  checkoutThemeColor: "#1F4D3A",
+  checkoutThemeColor: "#173A80",
 };

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useCheckout } from "../hooks/useCheckout";
 import { CheckoutNotice } from "../components/CheckoutNotice";
+import { LoadError } from "../components/LoadError";
 import { CourseCard, CourseCardSkeleton } from "../components/CourseCard";
 import { fetchOwnedCourseIds, fetchPublishedCourses, type CatalogCourse } from "../lib/catalog";
 import { IconSearch } from "../components/Icons";
@@ -13,18 +15,40 @@ export function Courses() {
   const [courses, setCourses] = useState<CatalogCourse[]>([]);
   const [ownedIds, setOwnedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("");
+  const [loadError, setLoadError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [params] = useSearchParams();
+  // Home-page and header search send visitors here as /courses?q=...
+  const [query, setQuery] = useState(params.get("q") ?? "");
   const [filter, setFilter] = useState<Filter>("all");
   const checkout = useCheckout();
 
   useEffect(() => {
+    let active = true;
     (async () => {
-      setCourses(await fetchPublishedCourses());
-      if (user) setOwnedIds(await fetchOwnedCourseIds(user.id));
-      else setOwnedIds(new Set());
-      setLoading(false);
+      setLoading(true);
+      setLoadError(false);
+      try {
+        const list = await fetchPublishedCourses();
+        const owned = user ? await fetchOwnedCourseIds(user.id) : new Set<string>();
+        if (!active) return;
+        setCourses(list);
+        setOwnedIds(owned);
+      } catch (err) {
+        console.error("Courses: could not load courses:", err);
+        if (active) setLoadError(true);
+      } finally {
+        if (active) setLoading(false);
+      }
     })();
-  }, [user?.id]);
+    return () => {
+      active = false;
+    };
+  }, [user?.id, attempt]);
+
+  useEffect(() => {
+    setQuery(params.get("q") ?? "");
+  }, [params]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -90,6 +114,8 @@ export function Courses() {
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {[...Array(6)].map((_, i) => <CourseCardSkeleton key={i} />)}
           </div>
+        ) : loadError ? (
+          <LoadError onRetry={() => setAttempt((n) => n + 1)} />
         ) : courses.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-line bg-white p-10 text-center text-ink/60">No courses are published yet.</p>
         ) : visible.length === 0 ? (

@@ -31,11 +31,16 @@ export function Learn() {
       setCourseTitle(course?.title ?? "");
       setCourseSlug(course?.slug ?? null);
 
-      const { data: moduleData } = await supabase
+      const { data: moduleData, error: moduleError } = await supabase
         .from("modules")
         .select("*, lessons(*)")
         .eq("course_id", courseId)
         .order("position");
+      if (moduleError) {
+        console.error("Learn: could not load lessons:", moduleError);
+        setContentError("Couldn't load this course. Please check your internet connection and reload the page.");
+        return;
+      }
       const withSortedLessons = (moduleData ?? []).map((m: any) => ({
         ...m,
         lessons: (m.lessons ?? []).sort((a: Lesson, b: Lesson) => a.position - b.position),
@@ -86,8 +91,9 @@ export function Learn() {
       const res = await fetch(`/api/get-signed-url?lessonId=${lesson.id}`, {
         headers: { Authorization: `Bearer ${session?.access_token}` },
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Access denied");
+      // The server normally answers with JSON, but a gateway error can return a plain page.
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(data.error || "Could not open this lesson. Please try again in a moment.");
       setSignedUrl(data.url);
 
       // For HTML applications, fetch the raw content ourselves and render it via
@@ -95,6 +101,7 @@ export function Learn() {
       // Content-Type header the storage object happens to have.
       if (lesson.content_type === "html_app") {
         const htmlRes = await fetch(data.url);
+        if (!htmlRes.ok) throw new Error("Could not load the lesson file. Please try again in a moment.");
         const htmlText = await htmlRes.text();
         setHtmlContent(htmlText);
       }
