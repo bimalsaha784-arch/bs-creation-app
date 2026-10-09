@@ -11,6 +11,7 @@ import { computeStats, fetchOwnedCourseIds, fetchPublishedCourses, type CatalogC
 import { discountPct, effectivePrice, formatPrice } from "../lib/format";
 import { IconCheckCircle, IconChevronDown, IconLock, IconShield } from "../components/Icons";
 import { lessonIcon } from "../components/lessonIcon";
+import { CourseTrial } from "../components/trial/CourseTrial";
 import type { Course, Module, Lesson } from "../types";
 
 export function CourseDetail() {
@@ -254,6 +255,9 @@ export function CourseDetail() {
           )}
         </div>
       </section>
+
+      {/* Free trial: shows only when the admin enabled it and added previews */}
+      <CourseTrial courseId={course.id} enabled={!!course.trial_enabled} />
 
       <div className="page grid gap-8 py-8 sm:py-10 lg:grid-cols-[1fr_360px] lg:gap-10">
         {/* Purchase box — first on mobile, sticky sidebar on desktop */}

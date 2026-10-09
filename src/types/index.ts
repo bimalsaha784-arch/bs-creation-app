@@ -25,6 +25,8 @@ export interface Course {
   language: string | null;
   status: "draft" | "published" | "archived";
   allow_pdf_download: boolean;
+  /** Admin switch for the Free Trial section (default false). */
+  trial_enabled?: boolean;
 }
 
 export interface Module {

@@ -78,9 +78,12 @@ export function AdminDashboard() {
     <div className="mx-auto max-w-6xl px-4 py-12">
       <div className="mb-8 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-slate-900">Admin Dashboard</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link to="/admin/courses" className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium hover:bg-slate-50">
             Manage Courses
+          </Link>
+          <Link to="/admin/trials" className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium hover:bg-slate-50">
+            Manage Course Free Trials
           </Link>
           <Link to="/admin/courses/create" className="rounded-full bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
             + New Course

@@ -17,6 +17,7 @@ import { AdminDashboard } from "./pages/admin/AdminDashboard";
 import { AdminCourses } from "./pages/admin/AdminCourses";
 import { AdminCourseCreate } from "./pages/admin/AdminCourseCreate";
 import { AdminCourseEdit } from "./pages/admin/AdminCourseEdit";
+import { AdminTrials } from "./pages/admin/AdminTrials";
 
 export default function App() {
   return (
@@ -47,6 +48,7 @@ export default function App() {
             <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
             <Route path="/admin/courses" element={<AdminRoute><AdminCourses /></AdminRoute>} />
             <Route path="/admin/courses/create" element={<AdminRoute><AdminCourseCreate /></AdminRoute>} />
+            <Route path="/admin/trials" element={<AdminRoute><AdminTrials /></AdminRoute>} />
             <Route path="/admin/courses/:id/edit" element={<AdminRoute><AdminCourseEdit /></AdminRoute>} />
           </Route>
         </Routes>
