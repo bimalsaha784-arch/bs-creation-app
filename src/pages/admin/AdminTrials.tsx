@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 import { LoadError } from "../../components/LoadError";
@@ -93,7 +93,7 @@ export function AdminTrials() {
     } catch (e) {
       console.error("AdminTrials: could not load resources:", e);
       setResError(
-        e instanceof Error && /course_trial_resources/.test(e.message)
+        /course_trial_resources/.test((e as { message?: string } | null)?.message ?? "")
           ? "The database is not ready for Free Trials yet. Run the SQL file supabase/migrations/0003_free_trials.sql in Supabase first."
           : "Could not load this course's previews.",
       );
@@ -171,7 +171,7 @@ export function AdminTrials() {
     if (thumbInput.current) thumbInput.current.value = "";
   }
 
-  async function addResources(e: React.FormEvent) {
+  async function addResources(e: FormEvent) {
     e.preventDefault();
     if (!course || busy) return;
     if (files.length === 0) return err("Choose a file to upload first.");

@@ -143,7 +143,7 @@ class Pkg {
     const hit = this.cache.get(path);
     if (hit) return hit;
     const data = this.files.get(path)!;
-    const blob = new Blob([data], { type: MIME[extOf(path)] ?? "application/octet-stream" });
+    const blob = new Blob([data as BlobPart], { type: MIME[extOf(path)] ?? "application/octet-stream" });
     const url = await new Promise<string>((resolve, reject) => {
       const r = new FileReader();
       r.onload = () => resolve(String(r.result));
